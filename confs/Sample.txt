@@ -16,15 +16,15 @@ Order	=	2
 [Simulation Parameters]
 Courant Number	=	0.10
 dt0		=	0.10
-NSTEPMAX	=	100
+NSTEPMAX	=	12000
 TSTEPMAX	=	0
-DATA_SAVE	=	10
+DATA_SAVE	=	100
 WRITE_20	=	25
 Order	=	2
 Smooth Delta Function Band	=	2
 
 [Plane Wave]
-Amplitude	=	0.05e-1
+Amplitude	=	0.1e-1
 Frequency	=	1.0e6
 Focal Distance	=	40.0e-3
 Box Size	=	30.0e-3
