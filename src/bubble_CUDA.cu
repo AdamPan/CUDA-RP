@@ -165,6 +165,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 
 		if((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0)){
 			solution.resize(save_count+1);
+
 			solution[save_count].p0 = (double*)calloc(m1Vol, sizeof(double));
 			solution[save_count].f_g = (double*)calloc(m2Vol, sizeof(double));
 			solution[save_count].T = (double*)calloc(m2Vol, sizeof(double));
@@ -176,6 +177,18 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 			solution[save_count].v_L = (double2*)calloc(numBubbles, sizeof(double2));
 			solution[save_count].R_t = (double*)calloc(numBubbles, sizeof(double));
 			solution[save_count].PL_p = (double*)calloc(numBubbles, sizeof(double));
+//			cudaMallocHost((void**)solution[save_count].p0, sizeof(double)*m1Vol);
+//			cudaMallocHost((void**)solution[save_count].f_g, sizeof(double)*m2Vol);
+//			cudaMallocHost((void**)solution[save_count].T, sizeof(double)*m2Vol);
+//			cudaMallocHost((void**)solution[save_count].vx, sizeof(double)*v_xVol);
+//			cudaMallocHost((void**)solution[save_count].vy, sizeof(double)*v_yVol);
+//			cudaMallocHost((void**)solution[save_count].p, sizeof(double2)*m1Vol);
+//			cudaMallocHost((void**)solution[save_count].pos, sizeof(double2)*numBubbles);
+//			cudaMallocHost((void**)solution[save_count].v_B, sizeof(double2)*numBubbles);
+//			cudaMallocHost((void**)solution[save_count].v_L, sizeof(double2)*numBubbles);
+//			cudaMallocHost((void**)solution[save_count].R_t, sizeof(double)*numBubbles);
+//			cudaMallocHost((void**)solution[save_count].PL_p, sizeof(double)*numBubbles);
+
 			cudaMemcpy2D(	solution[save_count].p0, sizeof(double)*i1m,
 					mixture_htod.p0, p0_pitch,
 					sizeof(double)*i1m, j1m,
@@ -220,13 +233,13 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 					bubbles_htod.PL_p,
 					sizeof(double)*numBubbles,
 					cudaMemcpyDeviceToHost);
-		#ifdef _DEBUG_
-			if(system("clear")){exit(EXIT_FAILURE);}
-			double a = debug->display - 1;
-			printf("Simulation step : %i\ttstep : %4.2E\tdt : %4.2E\n",
+		printf("Simulation step : %i\ttstep : %4.2E\tdt : %4.2E\n",
 				nstep,
 				tstep,
 				mix_params->dt);
+		#ifdef _DEBUG_
+			if(system("clear")){exit(EXIT_FAILURE);}
+			double a = debug->display - 1;
 			for (double i = 0; i <= numBubbles - 1; i += (numBubbles-1)/a){
 			printf("Bubble %i has position (%4.2E, %4.2E), velocity (%4.2E, %4.2E), and radius %4.2E. It will move by (%4.2E, %4.2E) this time step.\n",
 				(int)i,

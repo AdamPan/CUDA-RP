@@ -84,14 +84,15 @@
 #define FALSE 0
 
 #define _CYLINDRICAL_
-#define _DEBUG_
+//#define _DEBUG_
 
 #define EPSILON 0.01
 
 #define DIMENSION 2
 
-#define TILE_BLOCK_SIZE		16
-#define LINEAR_BLOCK_SIZE	256
+#define TILE_BLOCK_WIDTH	16
+#define TILE_BLOCK_HEIGHT	16
+#define LINEAR_BLOCK_SIZE	512
 #define HALF_LINEAR_SIZE	128
 
 #define VFRL_MAX_AREA	4
@@ -100,10 +101,11 @@
 #define WINDOW_HEIGHT	600
 #define WINDOW_WIDTH	800
 
+#define __DEVICE_EMULATION__
+
 //struct cudaGraphicsResource *cuda_pbo_resource;
 
 
-#ifdef _DEBUG_
 struct ALIGN(16) debug_t
 {
 	// Number of Lines to display during diagnostics
@@ -115,7 +117,6 @@ struct ALIGN(16) debug_t
 	bool T;		// Temperature
 	bool vxy;	// Velocity
 };
-#endif
 
 struct ALIGN(16) array_index_t
 {
