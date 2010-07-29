@@ -1,6 +1,6 @@
 #include "bubble_CUDA.h"
 
-// Array sizes for mixture and bubble variables, used in kernel dimension declarations
+// Array sizes
 extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
 extern int numBubbles;
 
@@ -8,8 +8,8 @@ extern int numBubbles;
 __device__ __constant__	double		Pi;
 __device__ __constant__	double		Pi4r3;
 
-__device__ __constant__	mixture_t	mixture_c;
-__device__ __constant__	bubble_t	bubbles_c;
+__device__ __constant__	mixture_t	mixture_c;	// Pointers to bubble variables
+__device__ __constant__	bubble_t	bubbles_c;	// Pointers to mixture variables
 
 __device__ __constant__	sigma_t		sigma_c; 	// Sigma coefficients used in PML calculations
 __device__ __constant__	grid_gen	gridgen_c; 	// Arrays containing rxp and xu, used in cylindrical coordinate calculations
@@ -23,7 +23,7 @@ __device__ __constant__	sim_params_t	sim_params_c;	// Simulation parameters
 __device__ __constant__	mix_params_t	mix_params_c;	// Mixture
 __device__ __constant__	bub_params_t	bub_params_c;	// Bubble
 __device__ __constant__	plane_wave_t	plane_wave_c;	// Plane Wave
-__device__ __constant__	double		tstep_c;	// Current thetime
+__device__ __constant__	double		tstep_c;	// Current time
 
 
 /* Forward Declarations */
@@ -54,23 +54,23 @@ static __host__ __device__ double solvePG(double, double, double, double, double
 /* Static utility functions */
 
 // Implements atomic addition for doubles
-static __inline__ __device__ double atomicAdd(double * addr, double val){
-    double old = *addr;
-    double assumed;
-
-    do {
-        assumed = old;
-        old = __longlong_as_double( atomicCAS((unsigned long long int*)addr,
-                                        __double_as_longlong(assumed),
-                                        __double_as_longlong(val+assumed)));	// Pull down down the variable, and compare and swap when we have the chance. Note that atomicCAS returns the new value at addr.
-    } while( assumed!=old );
-
-    return old;	// We return the final value, to conform with other atomicAdd() implementations
-}
-
 //static __inline__ __device__ double atomicAdd(double * addr, double val){
-//	return __longlong_as_double(atomicAdd((unsigned long long int*) addr, __double_as_longlong(val)));
+//    double old = *addr;
+//    double assumed;
+
+//    do {
+//        assumed = old;
+//        old = __longlong_as_double( atomicCAS((unsigned long long int*)addr,
+//                                        __double_as_longlong(assumed),
+//                                        __double_as_longlong(val+assumed)));	// Pull down down the variable, and compare and swap when we have the chance. Note that atomicCAS returns the new value at addr.
+//    } while( assumed!=old );
+
+//    return old;	// We return the final value, to conform with other atomicAdd() implementations
 //}
+
+static __inline__ __device__ double atomicAdd(double * addr, double val){
+	return __longlong_as_double(atomicAdd((unsigned long long int*) addr, __double_as_longlong(val)));
+}
 
 // intrinsic epsilon for double
 static __inline__ __host__ __device__ double epsilon(double val){
@@ -91,7 +91,7 @@ static __inline__ __host__ __device__ doublecomplex complexcoth(doublecomplex z)
 __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double * PG, const double * PL, double * dt, double * remain, bub_params_t bub_params){
 	double 	Rm, d2R, 	// Temporary radius variables
 		dtm, dtp, 	// Temporary time variables
-		c1, c2, c3;	// Registers
+		c1, c2;	// Registers
 
 	Rm = *Rn;
 	*Rn = *Rp;
@@ -112,14 +112,11 @@ __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp
 	}
 
 	c2 = -dtp/dtm;
-	c1 = 1.0 - c2;
-	c3 = dtp * 0.5 * (dtp + dtm);
-	*Rp = c1 * (*Rn) + c2 * Rm + c3 * d2R;
+	*Rp = (1.0 - c2) * (*Rn) + c2 * Rm + (dtp * 0.5 * (dtp + dtm)) * d2R;
 
 	c1 = dtm*dtm;
-	c3 = -dtp*dtp;
-	c2 = -c1-c3;
-	*d1R = (c1 * (*Rp) + c2 * (*Rn) + c3 * Rm)/(dtm * dtp * (dtm + dtp)) + dtp * d2R;
+	c2 = -dtp*dtp;
+	*d1R = (c1 * (*Rp) + (-c1-c2) * (*Rn) + c2 * Rm)/(dtm * dtp * (dtm + dtp)) + dtp * d2R;
 
 	*dt = dtp;
 	*Rt = *Rp;
@@ -127,9 +124,7 @@ __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp
 	if (dtp >= *remain){
 		dtp = *remain;
 		c2 = -dtp/dtm;
-		c1 = 1.0 - c2;
-		c3 = dtp * 0.5 * (dtp+dtm);
-		*Rt = c1 * (*Rn) + c2 * Rm + c3 * d2R;
+		*Rt = (1.0 - c2) * (*Rn) + c2 * Rm + (dtp * 0.5 * (dtp+dtm)) * d2R;
 	}
 	*remain -= dtp;
 	return;
@@ -346,20 +341,105 @@ __global__ void BubbleMotionKernel(){
 	}
 }
 
+//// Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
+//__global__ void BubbleRadiusKernel(int * max_iter){
+//	__shared__ double PGn[128];
+//	__shared__ double PL[128];
+//	__shared__ double Rt[128];
+//	__shared__ double omega_N[128];
+//	__shared__ doublecomplex alpha_N[128];
+//	__shared__ doublecomplex Lp_N[128];
+//	__shared__ double Rp[128];
+//	__shared__ double Rn[128];
+//	__shared__ double d1Rp[128];
+//	__shared__ double PGp[128];
+//	__shared__ double dt_L[128];
+//	__shared__ double remain[128];
+
+//	const int tx = threadIdx.x;
+
+//	double dTdr_R, SumHeat, SumVis;
+
+//	double PC0, PC1, PC2, time;
+
+//	double temp[3];
+
+//	int iter;
+
+//	for (int index = blockDim.x * blockIdx.x + threadIdx.x; index < num_bubbles + gridDim.x * blockDim.x; index += gridDim.x * blockDim.x){
+//	SumHeat = 0.0;
+//	SumVis = 0.0;
+//	if (index < num_bubbles){
+//		Rp[tx] 		= bubbles_c.R_pn[index];
+//		Rn[tx]		= bubbles_c.R_nn[index];
+//		d1Rp[tx] 	= bubbles_c.d1_R_n[index];
+//		PGp[tx]		= bubbles_c.PG_n[index];
+//		dt_L[tx]	= bubbles_c.dt_n[index];
+//		remain[tx]	= bubbles_c.re_n[index] + mix_params_c.dt;
+
+//		PC0 = bubbles_c.PL_n[index] + bub_params_c.PL0;
+//		PC1 = 0.5*(bubbles_c.PL_p[index]-bubbles_c.PL_m[index])/mix_params_c.dt;
+//		PC2 = 0.5*(bubbles_c.PL_p[index]+bubbles_c.PL_m[index]-2.0*bubbles_c.PL_n[index])/(mix_params_c.dt * mix_params_c.dt);
+
+//		time = -bubbles_c.re_n[index];
+
+//		iter = 0;
+
+//		while (remain[tx] > 0.0){
+//			//d1Rn 	= 	d1Rp;
+//			PGn[tx] 	= 	PGp[tx];
+//			PL[tx] 	= 	PC2 * time * time + PC1 * time + PC0;
+
+
+//			solveRayleighPlesset(&Rt[tx], &Rp[tx], &Rn[tx], &d1Rp[tx], &PGn[tx], &PL[tx], &dt_L[tx], &remain[tx], bub_params_c);
+//			time = time + dt_L[tx];
+
+//			omega_N[tx] = solveOmegaN (&alpha_N[tx], PGn[tx], Rn[tx], bub_params_c);
+
+
+//			Lp_N[tx] = solveLp(alpha_N[tx], Rn[tx]);
+
+//			PGp[tx] = solvePG(PGn[tx], Rp[tx], Rn[tx], omega_N[tx], dt_L[tx], Lp_N[tx], bub_params_c);
+
+//			temp[0] = 0.5*(Rp[tx]+Rn[tx]);
+//			temp[1] = 1 / (Lp_N[tx].abs() * Lp_N[tx].abs()) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
+//			dTdr_R 	= 	Lp_N[tx].real() * temp[1] * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp[tx]+PGn[tx])*temp[0]*temp[0]*temp[0]) +
+//					Lp_N[tx].imag() * temp[1] * (PGp[tx] * Rp[tx] * Rp[tx] * Rp[tx] - PGn[tx] * Rn[tx] * Rn[tx] * Rn[tx]) / (omega_N[tx] * dt_L[tx]);
+
+//			SumHeat -= 4.0 * Pi * Rp[tx] * Rp[tx] * bub_params_c.K0 * dTdr_R * dt_L[tx];
+//			SumVis 	+= 4.0 * Pi * Rp[tx] * Rp[tx] * 4.0 * bub_params_c.mu * d1Rp[tx] / Rp[tx] * d1Rp[tx] * dt_L[tx];
+
+//			iter++;
+//		}
+
+//		// Assign values back to the global memory
+//		bubbles_c.R_t[index] 	= Rt[tx];
+//		bubbles_c.R_p[index] 	= Rp[tx];
+//		bubbles_c.R_n[index] 	= Rn[tx];
+//		bubbles_c.d1_R_p[index]	= d1Rp[tx];
+//		bubbles_c.PG_p[index] 	= PGp[tx];
+//		bubbles_c.dt[index]	= dt_L[tx];
+//		bubbles_c.re[index]	= remain[tx];
+//		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain[tx] + bubbles_c.re_n[index]);
+
+//		max_iter[index] = iter;
+//		//}
+//	}
+//	}
+//}
+
 // Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
 __global__ void BubbleRadiusKernel(int * max_iter){
-	// double d1Rn;
+
 	double PGn, PL, Rt, omega_N;
 	double dTdr_R, SumHeat, SumVis;
 	doublecomplex alpha_N, Lp_N;
 
-	double Rp, Rn, d1Rp, PGp, dt_L, remain, PC0, PC1, PC2, thetime;
+	double Rp, Rn, d1Rp, PGp, dt_L, remain, PC0, PC1, PC2, time;
 
 	double temp[3];
 
 	for (int index = blockDim.x * blockIdx.x + threadIdx.x; index < num_bubbles + gridDim.x * blockDim.x; index += gridDim.x * blockDim.x){
-	SumHeat = 0.0;
-	SumVis = 0.0;
 	if (index < num_bubbles){
 		Rp 	= bubbles_c.R_pn[index];
 		Rn 	= bubbles_c.R_nn[index];
@@ -372,20 +452,19 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 		PC1 = 0.5*(bubbles_c.PL_p[index]-bubbles_c.PL_m[index])/mix_params_c.dt;
 		PC2 = 0.5*(bubbles_c.PL_p[index]+bubbles_c.PL_m[index]-2.0*bubbles_c.PL_n[index])/(mix_params_c.dt * mix_params_c.dt);
 
-		thetime = -bubbles_c.re_n[index];
+		time = -bubbles_c.re_n[index];
+		SumHeat = 0.0;
+		SumVis = 0.0;
+		temp[2] = 0;
 
-		max_iter[index] = 0;
-	}
-
-	if (index < num_bubbles){
 		while (remain > 0.0){
 			//d1Rn 	= 	d1Rp;
 			PGn 	= 	PGp;
-			PL 	= 	PC2 * thetime * thetime + PC1 * thetime + PC0;
+			PL 	= 	PC2 * time * time + PC1 * time + PC0;
 
 
 			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params_c);
-			thetime = thetime + dt_L;
+			time = time + dt_L;
 
 			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params_c);
 
@@ -402,11 +481,9 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params_c.K0 * dTdr_R * dt_L;
 			SumVis 	+= 4.0 * Pi * Rp * Rp * 4.0 * bub_params_c.mu * d1Rp / Rp * d1Rp * dt_L;
 
-			max_iter[index]++;
+			temp[2]++;
 		}
-	}
 
-	if (index < num_bubbles){
 		// Assign values back to the global memory
 		bubbles_c.R_t[index] 	= Rt;
 		bubbles_c.R_p[index] 	= Rp;
@@ -416,7 +493,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 		bubbles_c.dt[index]	= dt_L;
 		bubbles_c.re[index]	= remain;
 		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain + bubbles_c.re_n[index]);
-
+		max_iter[index]		= temp[2];
 		//}
 	}
 	}
@@ -1605,21 +1682,12 @@ int calculate_temperature(int k_m_width, int T_width, int f_g_width, int Ex_widt
 	}
 	
 	MixtureKMKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (k_m_width, T_width, f_g_width);
-//	cudaThreadSynchronize();
-//	checkCUDAError("Mixture KM");
-
-	WorkClearKernel <<< dim2mGrid, dim2mBlock, 0, stream[1] >>> (Work_width);
-//	cudaThreadSynchronize();
-//	cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m);
-	checkCUDAError("Clear Work Kernel");
-
-	BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[1] >>> (Work_width);
-//	cudaThreadSynchronize();
-//	checkCUDAError("Bubble heat");
-
+	cudaThreadSynchronize();
 	MixtureEnergyKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (k_m_width, T_width, Ex_width, Ey_width);
-//	cudaThreadSynchronize();
-//	checkCUDAError("Mixture temperature 1");
+	cudaThreadSynchronize();
+	WorkClearKernel <<< dim2mGrid, dim2mBlock, 0, stream[1] >>> (Work_width);
+	cudaThreadSynchronize();
+	BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[1] >>> (Work_width);
 
 	cudaThreadSynchronize();
 	checkCUDAError("Temperature Setup");
@@ -1651,25 +1719,20 @@ int calculate_properties(int rho_l_width, int rho_m_width, int c_sl_width, int C
 	return 0;
 }
 
-// call Bubbles_Radius
-//     $( Rt_b(n), Rp_b(n), Rn_b(n), Rpn_b(n), Rnn_b(n)
-//     $, d1Rp_b(n), d1Rn_b(n), PGp_b(n), PGn_b(n)
-//     $, PLp_b(n), PLn_b(n), PLm_b(n)
-//     $, QB_b(n), dt_b(n), dtn_b(n), dt0_b, dt, re_b(n), ren_b(n) )
-
 int solve_bubble_radii(bubble_t bubbles_htod){
 
 	const int block = 128;
 	dim3 dimBubbleBlock(block);
-	dim3 dimBubbleGrid((numBubbles / 8 + block - 1) / (block));
+	dim3 dimBubbleGrid((numBubbles / 2 + block - 1) / (block));
 
 	int * max_iter_d, max_iter_h[numBubbles];
 	int findmaxiter = 0;
 
 	cudaMalloc((void**)&max_iter_d, sizeof(int) * numBubbles);
 
-	cudaFuncSetCacheConfig(BubbleRadiusKernel, cudaFuncCachePreferL1);
+//	cudaFuncSetCacheConfig(BubbleRadiusKernel, cudaFuncCachePreferL1);
 	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock>>> (max_iter_d);
+//	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock, 10 * sizeof(double) * block + 2 * sizeof(doublecomplex) * block >>> (max_iter_d);
 	cudaThreadSynchronize();
 	checkCUDAError("Bubble Radius");
 
@@ -1687,7 +1750,7 @@ int solve_bubble_radii(bubble_t bubbles_htod){
 
 int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_params_t bub_params, mix_params_t mix_params){
 	double Rp, Rn, d1Rp, PGp, dt_L, remain;
-	double PC0, PC1, PC2, thetime;
+	double PC0, PC1, PC2, time;
 
 	int debugcount;
 
@@ -1738,17 +1801,17 @@ int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_param
 		PC1 = 0.5*(bubbles_h.PL_p[index]-bubbles_h.PL_m[index])/mix_params.dt;
 		PC2 = 0.5*(bubbles_h.PL_p[index]+bubbles_h.PL_m[index]-2.0*bubbles_h.PL_n[index])/(mix_params.dt * mix_params.dt);
 
-		thetime = -bubbles_h.re_n[index];
+		time = -bubbles_h.re_n[index];
 
 		debugcount = 0;
 		while (remain > 0.0){
 			debugcount ++;
 			//d1Rn 	= 	d1Rp;
 			PGn 	= 	PGp;
-			PL 	= 	PC2 * thetime * thetime + PC1 * thetime + PC0;
+			PL 	= 	PC2 * time * time + PC1 * time + PC0;
 
 			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params);
-			thetime = thetime + dt_L;
+			time = time + dt_L;
 
 			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params);
 
