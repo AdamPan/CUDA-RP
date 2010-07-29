@@ -310,7 +310,7 @@ int runSimulation(int argc, char **argv)
 	runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
 	runtime.close();
 	// Output the solution
-	send_to_file(solution, sim_params, debug);
+	//send_to_file(solution, sim_params, debug);
 	
 	return 0;
 }

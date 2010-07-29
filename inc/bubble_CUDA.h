@@ -84,16 +84,17 @@
 #define FALSE 0
 
 #define _CYLINDRICAL_
-//#define _DEBUG_
+#define _DEBUG_
 
 #define EPSILON 0.01
 
 #define DIMENSION 2
 
-#define TILE_BLOCK_WIDTH	16
-#define TILE_BLOCK_HEIGHT	16
-#define LINEAR_BLOCK_SIZE	512
-#define HALF_LINEAR_SIZE	128
+#define TILE_BLOCK_WIDTH	32
+#define TILE_BLOCK_HEIGHT	4
+//#define TILE_BLOCK_SIZE	16
+#define LINEAR_BLOCK_SIZE	128
+#define HALF_LINEAR_SIZE	64
 
 #define VFRL_MAX_AREA	4
 #define BH_MAX_AREA	4

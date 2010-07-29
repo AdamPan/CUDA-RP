@@ -161,7 +161,7 @@ else
 	COMMONFLAGS += -O2
 	BINSUBDIR   := release
 	LIBSUFFIX   := 
-	NVCCFLAGS   += --compiler-options -fno-strict-aliasing -G
+	NVCCFLAGS   += --compiler-options -fno-strict-aliasing -G --ptxas-options=-v
 	CXXFLAGS    += -fno-strict-aliasing
 	CFLAGS      += -fno-strict-aliasing
 endif

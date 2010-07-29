@@ -62,6 +62,8 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	
 	int max_iter;
 
+	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceScheduleYield));
+
 	// Initialize Variables
 	printf("Initializing\n");
 	if(initialize_variables(grid_size, PML, sim_params, plane_wave, array_index, mix_params, bub_params)){
@@ -156,7 +158,6 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		
 		// Calculate mixture temperature
 		if(calculate_temperature(k_m_width, T_width, f_g_width, Ex_width, Ey_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
-		
 		// Calculate mixture properties
 		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width)){exit(EXIT_FAILURE);}
 
@@ -165,7 +166,6 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 
 		if((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0)){
 			solution.resize(save_count+1);
-
 			solution[save_count].p0 = (double*)calloc(m1Vol, sizeof(double));
 			solution[save_count].f_g = (double*)calloc(m2Vol, sizeof(double));
 			solution[save_count].T = (double*)calloc(m2Vol, sizeof(double));
@@ -177,18 +177,6 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 			solution[save_count].v_L = (double2*)calloc(numBubbles, sizeof(double2));
 			solution[save_count].R_t = (double*)calloc(numBubbles, sizeof(double));
 			solution[save_count].PL_p = (double*)calloc(numBubbles, sizeof(double));
-//			cudaMallocHost((void**)solution[save_count].p0, sizeof(double)*m1Vol);
-//			cudaMallocHost((void**)solution[save_count].f_g, sizeof(double)*m2Vol);
-//			cudaMallocHost((void**)solution[save_count].T, sizeof(double)*m2Vol);
-//			cudaMallocHost((void**)solution[save_count].vx, sizeof(double)*v_xVol);
-//			cudaMallocHost((void**)solution[save_count].vy, sizeof(double)*v_yVol);
-//			cudaMallocHost((void**)solution[save_count].p, sizeof(double2)*m1Vol);
-//			cudaMallocHost((void**)solution[save_count].pos, sizeof(double2)*numBubbles);
-//			cudaMallocHost((void**)solution[save_count].v_B, sizeof(double2)*numBubbles);
-//			cudaMallocHost((void**)solution[save_count].v_L, sizeof(double2)*numBubbles);
-//			cudaMallocHost((void**)solution[save_count].R_t, sizeof(double)*numBubbles);
-//			cudaMallocHost((void**)solution[save_count].PL_p, sizeof(double)*numBubbles);
-
 			cudaMemcpy2D(	solution[save_count].p0, sizeof(double)*i1m,
 					mixture_htod.p0, p0_pitch,
 					sizeof(double)*i1m, j1m,
