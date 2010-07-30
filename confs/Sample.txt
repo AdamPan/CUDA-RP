@@ -24,7 +24,7 @@ Order		=	2
 Smooth Delta Function Band	=	2
 
 [Plane Wave]
-Amplitude	=	1e-1
+Amplitude	=	1.0e-1
 Frequency	=	1.0e6
 Focal Distance	=	15.0e-3
 Box Size	=	30.0e-3

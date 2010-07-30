@@ -43,12 +43,12 @@ static __inline__ __host__ __device__ double smooth_delta_x(const int, const dou
 static __inline__ __host__ __device__ double smooth_delta_y(const int, const double);	// y-direction
 
 // Functions used by the bubble radius solver
-static __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double * , const double * , double * , double *, bub_params_t);	// Solves the Rayleigh Plesset equation
-static __host__ __device__ double solveOmegaN(doublecomplex *, double, double, bub_params_t);	// Solves for omega_N
-static __host__ __device__ doublecomplex Alpha(double, double, double);	// Calculates alpha_N
-static __host__ __device__ doublecomplex Upsilon(doublecomplex , double);	// Calculates Upsilon
-static __host__ __device__ doublecomplex solveLp(doublecomplex, double);	// Calculates Lp_N
-static __host__ __device__ double solvePG(double, double, double, double, double, doublecomplex, bub_params_t);	// Calculates PG
+static __host__ __device__ void solveRayleighPlesset(float * , float * , float * , float * , const float * , const float * , float * , float *, bub_params_t);	// Solves the Rayleigh Plesset equation
+static __host__ __device__ float solveOmegaN(singlecomplex *, float, float, bub_params_t);	// Solves for omega_N
+static __host__ __device__ singlecomplex Alpha(float, float, float);	// Calculates alpha_N
+static __host__ __device__ singlecomplex Upsilon(singlecomplex , float);	// Calculates Upsilon
+static __host__ __device__ singlecomplex solveLp(singlecomplex, float);	// Calculates Lp_N
+static __host__ __device__ float solvePG(float, float, float, float, float, singlecomplex, bub_params_t);	// Calculates PG
 
 
 /* Static utility functions */
@@ -76,24 +76,30 @@ static __inline__ __host__ __device__ double2 operator+ (const double2 a, const 
 	return make_double2(a.x + b.x, a.y + b.y);
 }
 
-// intrinsic epsilon for double
+// intrinsic epsilon
 static __inline__ __host__ __device__ double epsilon(double val){
 	return 2.22044604925031308e-016;
 	//return 2.0e-16;
 	//return 1.0e-10;
 }
 
-// Implements hyperbolic cotangent for double precision complex variables
-static __inline__ __host__ __device__ doublecomplex complexcoth(doublecomplex z){
-	double x = tanh(z.real()), y = tan(z.imag());
-	return make_doublecomplex(1.0, x * y)/make_doublecomplex(x,y);
+static __inline__ __host__ __device__ float epsilon(float val){
+	return 2.22044604925031308e-016;
+	//return 2.0e-16;
+	//return 1.0e-10;
+}
+
+// Implements hyperbolic cotangent for float precision complex variables
+static __inline__ __host__ __device__ singlecomplex complexcoth(singlecomplex z){
+	float x = tanhf(z.real()), y = tanf(z.imag());
+	return make_singlecomplex(1.0, x * y)/make_singlecomplex(x,y);
 }
 
 /* Reduced Order Bubble Dynamics Modelling Functions */
 
 // Rayleigh Plesset solver
-__inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double * PG, const double * PL, double * dt, double * remain, bub_params_t bub_params){
-	double 	Rm, d2R, 	// Temporary radius variables
+__inline__ __host__ __device__ void solveRayleighPlesset(float * Rt, float *Rp, float * Rn, float * d1R, const float * PG, const float * PL, float * dt, float * remain, bub_params_t bub_params){
+	float 	Rm, d2R, 	// Temporary radius variables
 		dtm, dtp; 	// Temporary time variables
 
 	Rm = *Rn;
@@ -102,13 +108,13 @@ __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp
 	d2R = (( *PG - *PL - 2.0*bub_params.sig/(*Rn) - 4.0*bub_params.mu/(*Rn)*(*d1R) )/bub_params.rho - 1.5*(*d1R)*(*d1R)) / (*Rn);
 
 	dtm = *dt;
-	dtp = min(1.01 * (*dt), bub_params.dt0);
+	dtp = fminf(1.01 * (*dt), bub_params.dt0);
 	
-	if (abs(*d1R) > epsilon(abs(*d1R))){
+	if (fabsf(*d1R) > epsilon(fabsf(*d1R))){
 		dtp = min(dtp, 0.01 * (*Rn)/abs(*d1R));
 	}
-	if (abs(d2R) > epsilon(abs(d2R))){
-		dtp = min(dtp, sqrt(0.01 * (*Rn)/abs(d2R)));
+	if (fabsf(d2R) > epsilon(fabsf(d2R))){
+		dtp = fminf(dtp, sqrtf(0.01 * (*Rn)/fabsf(d2R)));
 	}
 
 	*Rt = *Rp = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp * 0.5 * (dtp + dtm)) * d2R;
@@ -124,21 +130,21 @@ __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp
 }
 
 // Implicit solver for omega_N and alpha_N
-__inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, double PG, double R, bub_params_t bub_params){
-	double R2 = R * R;
-	double coef1 = (bub_params.PG0 * bub_params.R03)/(PG * R * R2);
-	double coef2 = PG / (bub_params.rho * R2);
-	double coef3 = 4.0 / (bub_params.rho * bub_params.rho * R2 * R2);
-	double value1 = -2.0 * bub_params.sig/(bub_params.rho * R2 * R);
+__inline__ __host__ __device__ float solveOmegaN(singlecomplex * alpha_N, float PG, float R, bub_params_t bub_params){
+	float R2 = R * R;
+	float coef1 = (bub_params.PG0 * bub_params.R03)/(PG * R * R2);
+	float coef2 = PG / (bub_params.rho * R2);
+	float coef3 = 4.0 / (bub_params.rho * bub_params.rho * R2 * R2);
+	float value1 = -2.0 * bub_params.sig/(bub_params.rho * R2 * R);
 
-	double omega_N;
+	float omega_N;
 
 	// Zeroeth step
-	doublecomplex Upsilon_N = make_doublecomplex(3.0*bub_params.gam, 0.0) * coef1;
-	double mu_eff = bub_params.mu;
-	double eta = Upsilon_N.real() * coef2 + value1 - mu_eff * mu_eff * coef3;
+	singlecomplex Upsilon_N = make_singlecomplex(3.0*bub_params.gam, 0.0) * coef1;
+	float mu_eff = bub_params.mu;
+	float eta = Upsilon_N.real() * coef2 + value1 - mu_eff * mu_eff * coef3;
 
-	omega_N = sqrt(max(eta, 1.0e-6*epsilon(eta)));
+	omega_N = sqrtf(fmaxf(eta, 1.0e-6*epsilon(eta)));
 	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 	
 	#pragma unroll
@@ -147,20 +153,20 @@ __inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, doubl
 		mu_eff = bub_params.mu + Upsilon_N.imag() * PG / (4.0 * (omega_N));
 		eta = Upsilon_N.real() * coef2 + value1 - mu_eff * mu_eff * coef3;
 
-		omega_N = sqrt(max(eta, 1.0e-6*epsilon(eta)));
+		omega_N = sqrtf(fmaxf(eta, 1.0e-6*epsilon(eta)));
 		*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 	}
 	return omega_N;
 }
 
 // returns alpha_N
-static __inline__ __host__ __device__ doublecomplex Alpha(double R, double omega_N, double coeff_alpha){
-	return make_doublecomplex(1.0, 1.0) * sqrt(coeff_alpha * (omega_N) / (R));
+static __inline__ __host__ __device__ singlecomplex Alpha(float R, float omega_N, float coeff_alpha){
+	return make_singlecomplex(1.0, 1.0) * sqrtf(coeff_alpha * (omega_N) / (R));
 }
 
 // returns Upsilon_N
-static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, double gam){
-	doublecomplex ctmp;
+static __inline__ __host__ __device__ singlecomplex Upsilon(singlecomplex a, float gam){
+	singlecomplex ctmp;
 	if (a.abs() > 1.0e-2){
 		ctmp = (a * complexcoth(a) - 1.0)/(a*a);
 	}
@@ -171,8 +177,8 @@ static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, dou
 }
 
 // returns Lp_N
-static __inline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, double R){
-	doublecomplex ctmp;
+static __inline__ __host__ __device__ singlecomplex solveLp(singlecomplex a, float R){
+	singlecomplex ctmp;
 	if(a.abs() > 1.0e-1){
 		ctmp = a * complexcoth(a) - 1.0;
 		ctmp = (a*a - 3.0 * ctmp)/(a*a*ctmp);
@@ -185,12 +191,12 @@ static __inline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, dou
 }
 
 // returns PG
-__inline__ __host__ __device__ double solvePG(double PGn, double Rp, double Rn, double omega_N, double dt, doublecomplex Lp_N, bub_params_t bub_params){
-	double 	Lp_NR = Lp_N.real() / (Lp_N.abs() * Lp_N.abs()),
+__inline__ __host__ __device__ float solvePG(float PGn, float Rp, float Rn, float omega_N, float dt, singlecomplex Lp_N, bub_params_t bub_params){
+	float 	Lp_NR = Lp_N.real() / (Lp_N.abs() * Lp_N.abs()),
 		Lp_NI = Lp_N.imag() / (Lp_N.abs() * Lp_N.abs()),
 		R = 0.5 * (Rp + Rn);
 
-	double	c0 = dt*3.0*(bub_params.gam-1.0) * 2.0/(Rp + Rn) * bub_params.K0 * bub_params.T0/(bub_params.PG0 * bub_params.R03),
+	float	c0 = dt*3.0*(bub_params.gam-1.0) * 2.0/(Rp + Rn) * bub_params.K0 * bub_params.T0/(bub_params.PG0 * bub_params.R03),
 		c3 = 3.0 * bub_params.gam/(Rp+Rn)*(Rp-Rn) + c0 * Lp_NR * 0.5 * R*R*R,
 		c1 = 1.0 + c3 - c0*Lp_NI/(omega_N * dt) * Rp*Rp*Rp,
 		c2 = 1.0 - c3 - c0*Lp_NI/(omega_N * dt) * Rn*Rn*Rn;
@@ -402,13 +408,13 @@ __global__ void BubbleMotionKernel(){
 __global__ void BubbleRadiusKernel(int * max_iter){
 	const int index = blockDim.x * blockIdx.x + threadIdx.x;
 
-	double PGn, PL, Rt, omega_N;
-	double dTdr_R, SumHeat, SumVis;
-	doublecomplex alpha_N, Lp_N;
+	float PGn, PL, Rt, omega_N;
+	float dTdr_R, SumHeat, SumVis;
+	singlecomplex alpha_N, Lp_N;
 
-	double Rp, Rn, d1Rp, PGp, dt_L, remain, PC0, PC1, PC2, time;
+	float Rp, Rn, d1Rp, PGp, dt_L, remain, PC0, PC1, PC2, time;
 
-	double temp[3];
+	float temp[3];
 
 	if (index < num_bubbles){
 		// Cache bubble parameters
@@ -1472,203 +1478,203 @@ int solve_bubble_radii(bubble_t bubbles_htod){
 	return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
 }
 
-int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_params_t bub_params, mix_params_t mix_params){
-	double Rp, Rn, d1Rp, PGp, dt_L, remain;
-	double PC0, PC1, PC2, time;
+//int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_params_t bub_params, mix_params_t mix_params){
+//	double Rp, Rn, d1Rp, PGp, dt_L, remain;
+//	double PC0, PC1, PC2, time;
 
-	int debugcount;
+//	int debugcount;
 
-	//double d1Rn
-	double PGn, PL, Rt, omega_N;
-	double dTdr_R, SumHeat, SumVis;
-	doublecomplex alpha_N, Lp_N;
+//	//double d1Rn
+//	double PGn, PL, Rt, omega_N;
+//	double dTdr_R, SumHeat, SumVis;
+//	doublecomplex alpha_N, Lp_N;
 
-	int maxiter = 0;
+//	int maxiter = 0;
 
-	cudaMemcpy(bubbles_h.ibm,	bubbles_htod.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.ibn,	bubbles_htod.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.pos,	bubbles_htod.pos,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_t,	bubbles_htod.R_t,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_p,	bubbles_htod.R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_pn,	bubbles_htod.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_n,	bubbles_htod.R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_nn,	bubbles_htod.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.d1_R_p,	bubbles_htod.d1_R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.d1_R_n,	bubbles_htod.d1_R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PG_p,	bubbles_htod.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PG_n,	bubbles_htod.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PL_p,	bubbles_htod.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PL_n,	bubbles_htod.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PL_m,	bubbles_htod.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.Q_B,	bubbles_htod.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.n_B,	bubbles_htod.n_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.dt,	bubbles_htod.dt,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.dt_n,	bubbles_htod.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.re,	bubbles_htod.re,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.re_n,	bubbles_htod.re_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.v_B,	bubbles_htod.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.v_L,	bubbles_htod.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.ibm,	bubbles_htod.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.ibn,	bubbles_htod.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.pos,	bubbles_htod.pos,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.R_t,	bubbles_htod.R_t,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.R_p,	bubbles_htod.R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.R_pn,	bubbles_htod.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.R_n,	bubbles_htod.R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.R_nn,	bubbles_htod.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.d1_R_p,	bubbles_htod.d1_R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.d1_R_n,	bubbles_htod.d1_R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.PG_p,	bubbles_htod.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.PG_n,	bubbles_htod.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.PL_p,	bubbles_htod.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.PL_n,	bubbles_htod.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.PL_m,	bubbles_htod.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.Q_B,	bubbles_htod.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.n_B,	bubbles_htod.n_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.dt,	bubbles_htod.dt,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.dt_n,	bubbles_htod.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.re,	bubbles_htod.re,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.re_n,	bubbles_htod.re_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.v_B,	bubbles_htod.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(bubbles_h.v_L,	bubbles_htod.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
 
-	int max_iter_device = solve_bubble_radii(bubbles_htod);
+//	int max_iter_device = solve_bubble_radii(bubbles_htod);
 
-	for (int index = 0; index < numBubbles; index++){
-		//for (index; (index < index + blockDim.x) && (index < num_bubbles); index++){
+//	for (int index = 0; index < numBubbles; index++){
+//		//for (index; (index < index + blockDim.x) && (index < num_bubbles); index++){
 
-		Rp 	= bubbles_h.R_pn[index];
-		Rn 	= bubbles_h.R_nn[index];
-		d1Rp 	= bubbles_h.d1_R_n[index];
-		PGp	= bubbles_h.PG_n[index];
-		dt_L	= bubbles_h.dt_n[index];
-		remain	= bubbles_h.re_n[index] + mix_params.dt;
+//		Rp 	= bubbles_h.R_pn[index];
+//		Rn 	= bubbles_h.R_nn[index];
+//		d1Rp 	= bubbles_h.d1_R_n[index];
+//		PGp	= bubbles_h.PG_n[index];
+//		dt_L	= bubbles_h.dt_n[index];
+//		remain	= bubbles_h.re_n[index] + mix_params.dt;
 
-		PC0 = bubbles_h.PL_n[index] + bub_params.PL0;
-		PC1 = 0.5*(bubbles_h.PL_p[index]-bubbles_h.PL_m[index])/mix_params.dt;
-		PC2 = 0.5*(bubbles_h.PL_p[index]+bubbles_h.PL_m[index]-2.0*bubbles_h.PL_n[index])/(mix_params.dt * mix_params.dt);
+//		PC0 = bubbles_h.PL_n[index] + bub_params.PL0;
+//		PC1 = 0.5*(bubbles_h.PL_p[index]-bubbles_h.PL_m[index])/mix_params.dt;
+//		PC2 = 0.5*(bubbles_h.PL_p[index]+bubbles_h.PL_m[index]-2.0*bubbles_h.PL_n[index])/(mix_params.dt * mix_params.dt);
 
-		time = -bubbles_h.re_n[index];
+//		time = -bubbles_h.re_n[index];
 
-		debugcount = 0;
-		while (remain > 0.0){
-			debugcount ++;
-			//d1Rn 	= 	d1Rp;
-			PGn 	= 	PGp;
-			PL 	= 	PC2 * time * time + PC1 * time + PC0;
+//		debugcount = 0;
+//		while (remain > 0.0){
+//			debugcount ++;
+//			//d1Rn 	= 	d1Rp;
+//			PGn 	= 	PGp;
+//			PL 	= 	PC2 * time * time + PC1 * time + PC0;
 
-			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params);
-			time = time + dt_L;
+//			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params);
+//			time = time + dt_L;
 
-			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params);
+//			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params);
 
-			Lp_N = solveLp(alpha_N, Rn);
+//			Lp_N = solveLp(alpha_N, Rn);
 
-			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params);
+//			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params);
 
-			dTdr_R 	= 	Lp_N.real() / (Lp_N.abs() * Lp_N.abs()) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
-					(bub_params.PG0 * bub_params.R03 - 0.5*(PGp+PGn)*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))) +
-					Lp_N.imag() / (Lp_N.abs() * Lp_N.abs()) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
-					(PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
+//			dTdr_R 	= 	Lp_N.real() / (Lp_N.abs() * Lp_N.abs()) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
+//					(bub_params.PG0 * bub_params.R03 - 0.5*(PGp+PGn)*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))) +
+//					Lp_N.imag() / (Lp_N.abs() * Lp_N.abs()) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
+//					(PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
 
-			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params.K0 * dTdr_R * dt_L;
-			SumVis 	+= 4.0 * Pi * Rp * Rp * 4.0 * bub_params.mu * d1Rp / Rp * d1Rp * dt_L;
+//			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params.K0 * dTdr_R * dt_L;
+//			SumVis 	+= 4.0 * Pi * Rp * Rp * 4.0 * bub_params.mu * d1Rp / Rp * d1Rp * dt_L;
 
-		}
-		if (debugcount > maxiter) {maxiter = debugcount;}
+//		}
+//		if (debugcount > maxiter) {maxiter = debugcount;}
 
-		// Assign values back to the global memory
-		bubbles_h.R_t[index] 	= Rt;
-		bubbles_h.R_p[index] 	= Rp;
-		bubbles_h.R_n[index] 	= Rn;
-		bubbles_h.d1_R_p[index]	= d1Rp;
-		bubbles_h.PG_p[index] 	= PGp;
-		bubbles_h.dt[index]	= dt_L;
-		bubbles_h.re[index]	= remain;
-		bubbles_h.Q_B[index]	= (SumHeat + SumVis) / (mix_params.dt - remain + bubbles_h.re_n[index]);
+//		// Assign values back to the global memory
+//		bubbles_h.R_t[index] 	= Rt;
+//		bubbles_h.R_p[index] 	= Rp;
+//		bubbles_h.R_n[index] 	= Rn;
+//		bubbles_h.d1_R_p[index]	= d1Rp;
+//		bubbles_h.PG_p[index] 	= PGp;
+//		bubbles_h.dt[index]	= dt_L;
+//		bubbles_h.re[index]	= remain;
+//		bubbles_h.Q_B[index]	= (SumHeat + SumVis) / (mix_params.dt - remain + bubbles_h.re_n[index]);
 
-		//}
-	}
-
-
-	bubble_t derp;
-
-	derp.ibm	= (int2*) calloc(numBubbles,  sizeof(int2));
-	derp.ibn	= (int2*) calloc(numBubbles,  sizeof(int2));
-	derp.pos	= (double2*) calloc(numBubbles,  sizeof(double2));
-	derp.R_t	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.R_p	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.R_pn	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.R_n	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.R_nn	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.d1_R_p	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.d1_R_n	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.PG_p	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.PG_n	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.PL_p	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.PL_n	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.PL_m	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.Q_B	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.n_B	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.dt	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.dt_n	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.re	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.re_n	= (double*) calloc(numBubbles,  sizeof(double));
-	derp.v_B	= (double2*) calloc(numBubbles,  sizeof(double2));
-	derp.v_L	= (double2*) calloc(numBubbles,  sizeof(double2));
+//		//}
+//	}
 
 
+//	bubble_t derp;
 
-	cudaMemcpy(derp.ibm,	bubbles_htod.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.ibn,	bubbles_htod.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.pos,	bubbles_htod.pos,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.R_t,	bubbles_htod.R_t,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.R_p,	bubbles_htod.R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.R_pn,	bubbles_htod.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.R_n,	bubbles_htod.R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.R_nn,	bubbles_htod.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.d1_R_p,	bubbles_htod.d1_R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.d1_R_n,	bubbles_htod.d1_R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.PG_p,	bubbles_htod.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.PG_n,	bubbles_htod.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.PL_p,	bubbles_htod.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.PL_n,	bubbles_htod.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.PL_m,	bubbles_htod.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.Q_B,	bubbles_htod.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.n_B,	bubbles_htod.n_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.dt,	bubbles_htod.dt,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.dt_n,	bubbles_htod.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.re,	bubbles_htod.re,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.re_n,	bubbles_htod.re_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.v_B,	bubbles_htod.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(derp.v_L,	bubbles_htod.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-
-
-	double delta[8] = {0,0,0,0,0,0,0,0};
-
-	for (int i = 0; i < numBubbles; i++){
-		delta[0]+=(bubbles_h.R_t[i] - derp.R_t[i]);
-		delta[1]+=(bubbles_h.R_p[i] - derp.R_p[i]);
-		delta[2]+=(bubbles_h.R_n[i] - derp.R_n[i]);
-		delta[3]+=(bubbles_h.d1_R_p[i] - derp.d1_R_p[i]);
-		delta[4]+=(bubbles_h.PG_p[i] - derp.PG_p[i]);
-		delta[5]+=(bubbles_h.dt[i] - derp.dt[i]);
-		delta[6]+=(bubbles_h.Q_B[i] - derp.Q_B[i]);
-		delta[7]+=(bubbles_h.re[i] - derp.re[i]);
-
-	}
-	if (delta[0])printf("Delta R_t = %4.2E  \n", delta[0] / numBubbles);
-	if (delta[1])printf("Delta R_p = %4.2E  \n", delta[1] / numBubbles);
-	if (delta[2])printf("Delta R_n = %4.2E  \n", delta[2] / numBubbles);
-	if (delta[3])printf("Delta d1_R_p = %4.2E  \n", delta[3] / numBubbles);
-	if (delta[4])printf("Delta PG_p = %4.2E  \n", delta[4] / numBubbles);
-	if (delta[5])printf("Delta dt = %4.2E  \n", delta[5] / numBubbles);
-	if (delta[6])printf("Delta Q_B = %4.2E  \n", delta[6] / numBubbles);
-	if (delta[7])printf("Delta re = %4.2E\n", delta[7] / numBubbles);
-	printf("\n");
+//	derp.ibm	= (int2*) calloc(numBubbles,  sizeof(int2));
+//	derp.ibn	= (int2*) calloc(numBubbles,  sizeof(int2));
+//	derp.pos	= (double2*) calloc(numBubbles,  sizeof(double2));
+//	derp.R_t	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.R_p	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.R_pn	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.R_n	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.R_nn	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.d1_R_p	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.d1_R_n	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.PG_p	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.PG_n	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.PL_p	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.PL_n	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.PL_m	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.Q_B	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.n_B	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.dt	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.dt_n	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.re	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.re_n	= (double*) calloc(numBubbles,  sizeof(double));
+//	derp.v_B	= (double2*) calloc(numBubbles,  sizeof(double2));
+//	derp.v_L	= (double2*) calloc(numBubbles,  sizeof(double2));
 
 
-	cudaMemcpy(bubbles_htod.ibm,	bubbles_h.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.ibn,	bubbles_h.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.pos,	bubbles_h.pos,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_t,	bubbles_h.R_t,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_p,	bubbles_h.R_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_pn,	bubbles_h.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_n,	bubbles_h.R_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_nn,	bubbles_h.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.d1_R_p,	bubbles_h.d1_R_p,	sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.d1_R_n,	bubbles_h.d1_R_n,	sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PG_p,	bubbles_h.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PG_n,	bubbles_h.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PL_p,	bubbles_h.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PL_n,	bubbles_h.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PL_m,	bubbles_h.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.Q_B,	bubbles_h.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.n_B,	bubbles_h.n_B,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.dt,	bubbles_h.dt,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.dt_n,	bubbles_h.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.re,	bubbles_h.re,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.re_n,	bubbles_h.re_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.v_B,	bubbles_h.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.v_L,	bubbles_h.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-	printf("The device iterated %i times\n", max_iter_device);
-	return maxiter;
-}
+
+//	cudaMemcpy(derp.ibm,	bubbles_htod.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.ibn,	bubbles_htod.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.pos,	bubbles_htod.pos,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.R_t,	bubbles_htod.R_t,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.R_p,	bubbles_htod.R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.R_pn,	bubbles_htod.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.R_n,	bubbles_htod.R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.R_nn,	bubbles_htod.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.d1_R_p,	bubbles_htod.d1_R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.d1_R_n,	bubbles_htod.d1_R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.PG_p,	bubbles_htod.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.PG_n,	bubbles_htod.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.PL_p,	bubbles_htod.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.PL_n,	bubbles_htod.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.PL_m,	bubbles_htod.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.Q_B,	bubbles_htod.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.n_B,	bubbles_htod.n_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.dt,	bubbles_htod.dt,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.dt_n,	bubbles_htod.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.re,	bubbles_htod.re,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.re_n,	bubbles_htod.re_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.v_B,	bubbles_htod.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+//	cudaMemcpy(derp.v_L,	bubbles_htod.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+
+
+//	double delta[8] = {0,0,0,0,0,0,0,0};
+
+//	for (int i = 0; i < numBubbles; i++){
+//		delta[0]+=(bubbles_h.R_t[i] - derp.R_t[i]);
+//		delta[1]+=(bubbles_h.R_p[i] - derp.R_p[i]);
+//		delta[2]+=(bubbles_h.R_n[i] - derp.R_n[i]);
+//		delta[3]+=(bubbles_h.d1_R_p[i] - derp.d1_R_p[i]);
+//		delta[4]+=(bubbles_h.PG_p[i] - derp.PG_p[i]);
+//		delta[5]+=(bubbles_h.dt[i] - derp.dt[i]);
+//		delta[6]+=(bubbles_h.Q_B[i] - derp.Q_B[i]);
+//		delta[7]+=(bubbles_h.re[i] - derp.re[i]);
+
+//	}
+//	if (delta[0])printf("Delta R_t = %4.2E  \n", delta[0] / numBubbles);
+//	if (delta[1])printf("Delta R_p = %4.2E  \n", delta[1] / numBubbles);
+//	if (delta[2])printf("Delta R_n = %4.2E  \n", delta[2] / numBubbles);
+//	if (delta[3])printf("Delta d1_R_p = %4.2E  \n", delta[3] / numBubbles);
+//	if (delta[4])printf("Delta PG_p = %4.2E  \n", delta[4] / numBubbles);
+//	if (delta[5])printf("Delta dt = %4.2E  \n", delta[5] / numBubbles);
+//	if (delta[6])printf("Delta Q_B = %4.2E  \n", delta[6] / numBubbles);
+//	if (delta[7])printf("Delta re = %4.2E\n", delta[7] / numBubbles);
+//	printf("\n");
+
+
+//	cudaMemcpy(bubbles_htod.ibm,	bubbles_h.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.ibn,	bubbles_h.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.pos,	bubbles_h.pos,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.R_t,	bubbles_h.R_t,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.R_p,	bubbles_h.R_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.R_pn,	bubbles_h.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.R_n,	bubbles_h.R_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.R_nn,	bubbles_h.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.d1_R_p,	bubbles_h.d1_R_p,	sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.d1_R_n,	bubbles_h.d1_R_n,	sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.PG_p,	bubbles_h.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.PG_n,	bubbles_h.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.PL_p,	bubbles_h.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.PL_n,	bubbles_h.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.PL_m,	bubbles_h.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.Q_B,	bubbles_h.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.n_B,	bubbles_h.n_B,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.dt,	bubbles_h.dt,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.dt_n,	bubbles_h.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.re,	bubbles_h.re,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.re_n,	bubbles_h.re_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.v_B,	bubbles_h.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
+//	cudaMemcpy(bubbles_htod.v_L,	bubbles_h.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
+//	printf("The device iterated %i times\n", max_iter_device);
+//	return maxiter;
+//}
 
