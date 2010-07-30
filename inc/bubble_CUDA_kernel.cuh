@@ -94,8 +94,7 @@ static __inline__ __host__ __device__ doublecomplex complexcoth(doublecomplex z)
 // Rayleigh Plesset solver
 __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double * PG, const double * PL, double * dt, double * remain, bub_params_t bub_params){
 	double 	Rm, d2R, 	// Temporary radius variables
-		dtm, dtp, 	// Temporary time variables
-		c1, c2;	// Registers
+		dtm, dtp; 	// Temporary time variables
 
 	Rm = *Rn;
 	*Rn = *Rp;
@@ -104,31 +103,21 @@ __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp
 
 	dtm = *dt;
 	dtp = min(1.01 * (*dt), bub_params.dt0);
-
-	c1 = abs(*d1R);
-	c2 = abs(d2R);
-
-	if (c1 > epsilon(c1)){
-		dtp = min(dtp, 0.01 * (*Rn)/c1);
+	
+	if (abs(*d1R) > epsilon(abs(*d1R))){
+		dtp = min(dtp, 0.01 * (*Rn)/abs(*d1R));
 	}
-	if (c2 > epsilon(c2)){
-		dtp = min(dtp, sqrt(0.01 * (*Rn)/c2));
+	if (abs(d2R) > epsilon(abs(d2R))){
+		dtp = min(dtp, sqrt(0.01 * (*Rn)/abs(d2R)));
 	}
 
-	c2 = -dtp/dtm;
-	*Rp = (1.0 - c2) * (*Rn) + c2 * Rm + (dtp * 0.5 * (dtp + dtm)) * d2R;
-
-	c1 = dtm*dtm;
-	c2 = -dtp*dtp;
-	*d1R = (c1 * (*Rp) + (-c1-c2) * (*Rn) + c2 * Rm)/(dtm * dtp * (dtm + dtp)) + dtp * d2R;
-
+	*Rt = *Rp = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp * 0.5 * (dtp + dtm)) * d2R;
+	*d1R = (dtm*dtm * (*Rp) + (-dtm*dtm + dtp*dtp) * (*Rn) - dtp*dtp * Rm)/(dtm * dtp * (dtm + dtp)) + dtp * d2R;
 	*dt = dtp;
-	*Rt = *Rp;
 
 	if (dtp >= *remain){
 		dtp = *remain;
-		c2 = -dtp/dtm;
-		*Rt = (1.0 - c2) * (*Rn) + c2 * Rm + (dtp * 0.5 * (dtp+dtm)) * d2R;
+		*Rt = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp * 0.5 * (dtp+dtm)) * d2R;
 	}
 	*remain -= dtp;
 	return;
@@ -161,7 +150,6 @@ __inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, doubl
 		omega_N = sqrt(max(eta, 1.0e-6*epsilon(eta)));
 		*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 	}
-
 	return omega_N;
 }
 
@@ -173,12 +161,11 @@ static __inline__ __host__ __device__ doublecomplex Alpha(double R, double omega
 // returns Upsilon_N
 static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, double gam){
 	doublecomplex ctmp;
-	doublecomplex a2 = a * a;
 	if (a.abs() > 1.0e-2){
-		ctmp = (a * complexcoth(a) - 1.0)/(a2);
+		ctmp = (a * complexcoth(a) - 1.0)/(a*a);
 	}
 	else{
-		ctmp = 1.0/3.0 + a2 * (-1.0/45.0 + a2 * (2.0/945.0 - a2 / 4725.0));
+		ctmp = 1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0));
 	}
 	return (3.0 * gam)/(1.0+3.0*(gam-1.0)*ctmp);
 }
@@ -186,13 +173,12 @@ static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, dou
 // returns Lp_N
 static __inline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, double R){
 	doublecomplex ctmp;
-	doublecomplex a2 = a * a;
 	if(a.abs() > 1.0e-1){
 		ctmp = a * complexcoth(a) - 1.0;
-		ctmp = (a2 - 3.0 * ctmp)/(a2*ctmp);
+		ctmp = (a*a - 3.0 * ctmp)/(a*a*ctmp);
 	}
 	else{
-		ctmp = 1.0/5.0 + a2*(-1.0/175.0+a2*(2.0/7875.0 - a2*(37.0/3031875.0)));
+		ctmp = 1.0/5.0 + a*a*(-1.0/175.0+a*a*(2.0/7875.0 - a*a*(37.0/3031875.0)));
 	}
 
 	return ctmp * R;
@@ -414,6 +400,7 @@ __global__ void BubbleMotionKernel(){
 
 // Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
 __global__ void BubbleRadiusKernel(int * max_iter){
+	const int index = blockDim.x * blockIdx.x + threadIdx.x;
 
 	double PGn, PL, Rt, omega_N;
 	double dTdr_R, SumHeat, SumVis;
@@ -423,7 +410,6 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 	double temp[3];
 
-	for (int index = blockDim.x * blockIdx.x + threadIdx.x; index < num_bubbles + gridDim.x * blockDim.x; index += gridDim.x * blockDim.x){
 	if (index < num_bubbles){
 		// Cache bubble parameters
 		Rp 	= bubbles_c.R_pn[index];
@@ -482,7 +468,6 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain + bubbles_c.re_n[index]);
 		max_iter[index]		= temp[2];
 		//}
-	}
 	}
 }
 
@@ -555,9 +540,9 @@ __global__ void VFPredictionKernel(int fg_width){
 }
 
 __global__ void VelocityKernel(int vx_width, int vy_width, int rhom_width, int p0_width, int csl_width){
-	__shared__ double p0[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
-	__shared__ double rhom[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
-	__shared__ double csl[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
+//	__shared__ double p0[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
+//	__shared__ double rhom[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
+//	__shared__ double csl[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
 	
 	const int tx = threadIdx.x,	ty = threadIdx.y;
 
@@ -579,33 +564,39 @@ __global__ void VelocityKernel(int vx_width, int vy_width, int rhom_width, int p
 	const double s0 = 0.5 * mix_params_c.dt;
 	double s1, s2, s3;
 
-	if (ok1 || ok2){
-		p0[ty][tx] = mixture_c.p0[p0_i];
-		rhom[ty][tx] = mixture_c.rho_m[rhom_i];
-		csl[ty][tx] = mixture_c.c_sl[csl_i];
-	}
-	if (ok1 && ((tx == blockDim.x - 1) || (in == array_c.iendn))){
-		p0[ty][tx + 1] = mixture_c.p0[p0_i + 1];
-		rhom[ty][tx + 1] = mixture_c.rho_m[rhom_i + 1];
-		csl[ty][tx + 1] = mixture_c.c_sl[csl_i + 1];
-	}
-	if (ok2 && ((ty == blockDim.y - 1)||(jn == array_c.jendn))){
-		rhom[ty + 1][tx] = mixture_c.rho_m[rhom_i + rhom_width];
-		p0[ty + 1][tx] = mixture_c.p0[p0_i + p0_width];
-		csl[ty + 1][tx] = mixture_c.c_sl[csl_i + csl_width];
-	}
-	__syncthreads();
+//	if (ok1 || ok2){
+//		p0[ty][tx] = mixture_c.p0[p0_i];
+//		rhom[ty][tx] = mixture_c.rho_m[rhom_i];
+//		csl[ty][tx] = mixture_c.c_sl[csl_i];
+//	}
+//	if (ok1 && ((tx == blockDim.x - 1) || (in == array_c.iendn))){
+//		p0[ty][tx + 1] = mixture_c.p0[p0_i + 1];
+//		rhom[ty][tx + 1] = mixture_c.rho_m[rhom_i + 1];
+//		csl[ty][tx + 1] = mixture_c.c_sl[csl_i + 1];
+//	}
+//	if (ok2 && ((ty == blockDim.y - 1)||(jn == array_c.jendn))){
+//		rhom[ty + 1][tx] = mixture_c.rho_m[rhom_i + rhom_width];
+//		p0[ty + 1][tx] = mixture_c.p0[p0_i + p0_width];
+//		csl[ty + 1][tx] = mixture_c.c_sl[csl_i + csl_width];
+//	}
+//	__syncthreads();
 	if (ok1){
-		s1 = (rhom[ty][tx] + rhom[ty][tx + 1]) * 0.5;
-		s2 = (-p0[ty][tx] + p0[ty][tx + 1]) * grid_c.rdx;
-		s3 = (csl[ty][tx] + csl[ty][tx + 1]) * 0.5;
+		s1 = (mixture_c.rho_m[rhom_i] + mixture_c.rho_m[rhom_i + 1]) * 0.5;
+		s2 = (-mixture_c.p0[p0_i] + mixture_c.p0[p0_i + 1]) * grid_c.rdx;
+		s3 = (mixture_c.c_sl[csl_i] + mixture_c.c_sl[csl_i + 1]) * 0.5;
+//		s1 = (rhom[ty][tx] + rhom[ty][tx + 1]) * 0.5;
+//		s2 = (-p0[ty][tx] + p0[ty][tx + 1]) * grid_c.rdx;
+//		s3 = (csl[ty][tx] + csl[ty][tx + 1]) * 0.5;
 		s3 = s3 * s0 * sigma_c.nx[i];
 		mixture_c.vx[vx_i] = (mixture_c.vx[vx_i] * (1.0 - s3) - mix_params_c.dt / s1 * s2)/(1.0 + s3);
 	}
 	if (ok2){
-		s1 = ( rhom[ty][tx] + rhom[ty + 1][tx] ) * 0.5;
-		s2 = (-p0[ty][tx] + p0[ty + 1][tx] ) * grid_c.rdx;
-		s3 = ( csl[ty][tx] + csl[ty + 1][tx] ) * 0.5;
+		s1 = (mixture_c.rho_m[rhom_i] + mixture_c.rho_m[rhom_i + rhom_width]) * 0.5;
+		s2 = (-mixture_c.p0[p0_i] + mixture_c.p0[p0_i + p0_width]) * grid_c.rdx;
+		s3 = (mixture_c.c_sl[csl_i] + mixture_c.c_sl[csl_i + csl_width]) * 0.5;
+//		s1 = ( rhom[ty][tx] + rhom[ty + 1][tx] ) * 0.5;
+//		s2 = (-p0[ty][tx] + p0[ty + 1][tx] ) * grid_c.rdx;
+//		s3 = ( csl[ty][tx] + csl[ty + 1][tx] ) * 0.5;
 		s3 = s3 * s0 * sigma_c.ny[j];
 		mixture_c.vy[vy_i] = (mixture_c.vy[vy_i] * (1.0 - s3) - mix_params_c.dt / s1 * s2)/(1.0 + s3);
 	}
@@ -737,9 +728,9 @@ __global__ void VYBoundaryKernel(int vy_width){
 //	Calculates the mixture pressure
 //
 __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, int rhol_width, int csl_width, int p0_width, int p_width, int Work_width){
-	__shared__ double xu[TILE_BLOCK_WIDTH + 1];
-	__shared__ double vx[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
-	__shared__ double vy[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
+//	__shared__ double xu[TILE_BLOCK_WIDTH + 1];
+//	__shared__ double vx[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
+//	__shared__ double vy[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
 	const int tx = threadIdx.x,	ty = threadIdx.y;
 
 	const int i = blockIdx.x*blockDim.x + tx;
@@ -747,69 +738,79 @@ __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, 
 	const int i1m = i + array_c.ista1m;
 	const int j1m = j + array_c.jsta1m;
 	
+	const int fg_i = fg_width * (j1m - array_c.jsta2m) + i1m - array_c.ista2m;
+	const int rhol_i = rhol_width * j + i;
+	const int csl_i = csl_width * j + i;
+	const int p_i = p_width * j + i;
+	const int vx_i = vx_width * (j1m - array_c.jsta2m) + i1m - array_c.ista2n;
+	const int vy_i = vy_width * (j1m - array_c.jsta2n) + i1m - array_c.ista2m;
+	const int xu_i = i1m - array_c.ista2n;
+	const int Work_i = Work_width * j + i;
+	
 	const bool ok = ((i1m >= array_c.istam) && (i1m <= array_c.iendm) && (j1m >= array_c.jstam) && (j1m <= array_c.jendm));
 
 	double s1, s2, s3, s4, s5, s6, s7;
-	double f_g, f_gn;
-	double rho_l, c_sl;
+//	double f_g, f_gn;
+//	double rho_l, c_sl;
 
-	double2 p, pn;
+	double2 p;
+//	double2 pn;
 
 	// Keep in mind now that when we say xu[tx + 1], we really mean xu[tx], and so on
 
-	if (ok){
-		f_g = mixture_c.f_g[fg_width * (j1m - array_c.jsta2m) + (i1m - array_c.ista2m)];
-		f_gn = mixture_c.f_gn[fg_width * (j1m - array_c.jsta2m) + (i1m - array_c.ista2m)];
+//	if (ok){
+//		f_g = mixture_c.f_g[fg_i];
+//		f_gn = mixture_c.f_gn[fg_i];
 
-		rho_l = mixture_c.rho_l[rhol_width * j + i];
-		c_sl = mixture_c.c_sl[csl_width * j + i];
+//		rho_l = mixture_c.rho_l[rhol_i];
+//		c_sl = mixture_c.c_sl[csl_i];
 
-		pn = mixture_c.pn[p_width * j + i];
+//		pn = mixture_c.pn[p_i];
 
-		vx[ty][tx + 1] = mixture_c.vx[vx_width * (j1m - array_c.jsta2m) + (i1m - array_c.ista2n)];
-		vy[ty + 1][tx] = mixture_c.vy[vy_width * (j1m - array_c.jsta2n) + (i1m - array_c.ista2m)];
+//		vx[ty][tx + 1] = mixture_c.vx[vx_i];
+//		vy[ty + 1][tx] = mixture_c.vy[vy_i];
 
-		if ((tx == 0) || (i1m == array_c.istam)){
-			vx[ty][tx] = mixture_c.vx[vx_width * (j1m - array_c.jsta2m) + (i1m - 1 - array_c.ista2n)];
-		}
-		if ((ty == 0) || (j1m == array_c.jstam)){
-			vy[ty][tx] = mixture_c.vy[vy_width * (j1m - 1 - array_c.jsta2n) + (i1m - array_c.ista2m)];
-		}
-		if (ty == 0 || (j1m == array_c.jstam)){
-			xu[tx + 1] = gridgen_c.xu[i1m - array_c.ista2n];
-			if ((tx == 0) || (i1m == array_c.istam)){
-				xu[tx] = gridgen_c.xu[i1m - 1 - array_c.ista2n];
-			}
-		}
-	}
-	__syncthreads();
+//		if ((tx == 0) || (i1m == array_c.istam)){
+//			vx[ty][tx] = mixture_c.vx[vx_i - 1];
+//		}
+//		if ((ty == 0) || (j1m == array_c.jstam)){
+//			vy[ty][tx] = mixture_c.vy[vy_i - vy_width];
+//		}
+//		if (ty == 0 || (j1m == array_c.jstam)){
+//			xu[tx + 1] = gridgen_c.xu[xu_i];
+//			if ((tx == 0) || (i1m == array_c.istam)){
+//				xu[tx] = gridgen_c.xu[xu_i - 1];
+//			}
+//		}
+//	}
+//	__syncthreads();
 
 	if (ok){
 	#ifdef _CYLINDRICAL_
-		s1 = (-xu[tx]*vx[ty][tx] + xu[tx+1]*vx[ty][tx+1]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
-//		s1 = 	(
-//				-gridgen_c.xu[i1m - 1 - array_c.ista2n] * mixture_c.vx[vx_width * (j1m - array_c.jsta2m) + (i1m - 1 - array_c.ista2n)]
-//				+ gridgen_c.xu[i1m - array_c.ista2n] * mixture_c.vx[vx_width * (j1m - array_c.jsta2m) + (i1m - array_c.ista2n)]
-//			)
-//			* grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
+//		s1 = (-xu[tx]*vx[ty][tx] + xu[tx+1]*vx[ty][tx+1]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
+		s1 = (-gridgen_c.xu[xu_i - 1] * mixture_c.vx[vx_i - 1] + gridgen_c.xu[xu_i] * mixture_c.vx[vx_i]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
 	#else
-		s1 = (-vx[ty][tx] + vx[ty][tx+1])*grid_c.rdx;
-//		s1 = (-mixture_c.vx[vx_width * (j1m - array_c.jsta2m) + (i1m - 1 - array_c.ista2n)]
-//			+ mixture_c.vx[vx_width * (j1m - array_c.jsta2m) + (i1m - array_c.ista2n)]) * grid_c.rdx;
+//		s1 = (-vx[ty][tx] + vx[ty][tx+1])*grid_c.rdx;
+		s1 = (-mixture_c.vx[vx_i - 1] + mixture_c.vx[vx_i]) * grid_c.rdx;
 	#endif
-//		s2 = (-mixture_c.vy[vy_width * (j1m - 1 - array_c.jsta2n) + (i1m - array_c.ista2m)] + mixture_c.vy[vy_width * (j1m - array_c.jsta2n) + (i1m - array_c.ista2m)]) * grid_c.rdy;
-		s2 = (-vy[ty][tx] + vy[ty+1][tx])*grid_c.rdy;
-		s7 = -(f_g - f_gn)/ mix_params_c.dt / (1.0-0.5*(f_g + f_gn));
-		s3 = mix_params_c.dt * rho_l * c_sl * c_sl;
-		s4 = 0.5 * mix_params_c.dt * c_sl;
+//		s2 = (-vy[ty][tx] + vy[ty+1][tx])*grid_c.rdy;
+//		s7 = -(f_g - f_gn)/ mix_params_c.dt / (1.0-0.5*(f_g + f_gn));
+//		s3 = mix_params_c.dt * rho_l * c_sl * c_sl;
+//		s4 = 0.5 * mix_params_c.dt * c_sl;
+
+		s2 = (-mixture_c.vy[vy_i - vy_width] + mixture_c.vy[vy_i]) * grid_c.rdy;
+		s7 = -(mixture_c.f_g[fg_i] - mixture_c.f_gn[fg_i])/ mix_params_c.dt / (1.0-0.5*(mixture_c.f_g[fg_i] + mixture_c.f_gn[fg_i]));
+		s3 = mix_params_c.dt * mixture_c.rho_l[rhol_i] * mixture_c.c_sl[csl_i] * mixture_c.c_sl[csl_i];
+		s4 = 0.5 * mix_params_c.dt * mixture_c.c_sl[csl_i];
 		s5 = s4 * sigma_c.mx[i];
 		s6 = s4 * sigma_c.my[j];
-		p = make_double2((pn.x * (1.0 - s5) - s3 * (s1 + 0.5 * s7)) / (1.0 + s5), (pn.y * (1.0 - s6) - s3 * (s2 + 0.5 * s7)) / (1.0 + s6));
+//		p = make_double2((pn.x * (1.0 - s5) - s3 * (s1 + 0.5 * s7)) / (1.0 + s5), (pn.y * (1.0 - s6) - s3 * (s2 + 0.5 * s7)) / (1.0 + s6));
+		p = make_double2((mixture_c.pn[p_i].x * (1.0 - s5) - s3 * (s1 + 0.5 * s7)) / (1.0 + s5), (mixture_c.pn[p_i].y * (1.0 - s6) - s3 * (s2 + 0.5 * s7)) / (1.0 + s6));
 
-		mixture_c.p[p_width * j + i] = p;
+		mixture_c.p[p_i] = p;
 
-		mixture_c.Work[Work_width * j + i] = abs(mixture_c.p0[p0_width * j + i] - p.x - p.y);
-		mixture_c.p0[p0_width * j + i] = p.x + p.y;
+		mixture_c.Work[Work_i] = abs(mixture_c.p0[p_i] - (p.x + p.y));
+		mixture_c.p0[p_i] = p.x + p.y;
 	}
 
 }
@@ -882,98 +883,6 @@ __global__ void MixtureBoundaryPressureKernel(int p0_width){
 		}
 	}
 }
-
-__global__ void MixtureBoundaryPressureKernel_OLD(int p0_width){
-	const int bx = blockIdx.x;
-	const int tx = threadIdx.x;
-
-	const int i = bx*blockDim.x + tx;
-	const int i1m = i + array_c.ista1m;
-	const int j1m = i + array_c.jsta1m;
-
-	bool istam_to_iendm = (i1m >= array_c.istam) && (i1m <= array_c.iendm);
-	bool jsta1m_to_jend1m = (j1m >= array_c.jsta1m) && (j1m <= array_c.jend1m);
-
-	int p0_i = i;
-
-	double s1, s2;
-	double pamp = mix_params_c.rho_inf * mix_params_c.cs_inf * plane_wave_c.amp;
-	double p0;
-
-	if((PML_c.Y0 == 0) && istam_to_iendm){
-	for (int count = array_c.ms; count <= 0; count++){
-		p0 = mixture_c.p0[p0_width * (1 - count - array_c.jsta1m) + i];
-		mixture_c.p0[p0_width * (count - array_c.jsta1m) + i] = p0;
-	}
-	p0_i = p0_width * (0 - array_c.jsta1m) + i;
-	if (plane_wave_c.Plane_P == 0){
-	if (istam_to_iendm){
-	if ((fmod(tstep_c,(double)(plane_wave_c.on_wave + plane_wave_c.off_wave)/plane_wave_c.freq))
-		<=
-		((double)plane_wave_c.on_wave)/plane_wave_c.freq){
-		mixture_c.p0[p0_i] = pamp * sin(plane_wave_c.omega * tstep_c);
-	}
-	else{
-		mixture_c.p0[p0_i] = 0.0;
-	}
-	}
-	}
-
-
-
-	if (plane_wave_c.Focused_P == 1){
-	if (istam_to_iendm){
-		double ym = -0.5 * grid_c.dy;
-		double xm = (i1m - 0.5) * grid_c.dx;
-
-		s1 = sqrt(((plane_wave_c.fp.x - xm)*(plane_wave_c.fp.x - xm)) + ((plane_wave_c.fp.y - ym)*(plane_wave_c.fp.y - ym)));
-		if (s1 <= plane_wave_c.f_dist){
-			s1 = max( tstep_c - ( plane_wave_c.f_dist - s1 ) / mix_params_c.cs_inf, 0.0 );
-			s2 = fmod( s1, ((double)(plane_wave_c.on_wave + plane_wave_c.off_wave))/plane_wave_c.freq);
-			if (s2 < (double)plane_wave_c.on_wave / plane_wave_c.freq){
-				mixture_c.p0[p0_i] = pamp * sin(plane_wave_c.omega * s2);
-			}
-			else{
-				mixture_c.p0[p0_i] = 0.0;
-			}
-		}
-		else{
-			mixture_c.p0[p0_i] = 0.0;
-		}
-	}
-
-	}
-
-	}
-	if ((PML_c.Y1 == 0) && istam_to_iendm){
-	for (int j = grid_c.Y; j <= grid_c.Y + array_c.me; j++){
-		p0_i = p0_width * (grid_c.Y - (j - grid_c.Y - 1) - array_c.jsta1m) + i;
-		p0 = mixture_c.p0[p0_i];
-		p0_i = p0_width * (j - array_c.jsta1m) + i;
-		mixture_c.p0[p0_i] = p0;
-	}
-	}
-
-	if ((PML_c.X0 == 0) && jsta1m_to_jend1m){
-	for (int j = array_c.ms; j <= 0; j++){
-		p0_i = p0_width * i + (1 - j) - array_c.ista1m;
-		p0 = mixture_c.p0[p0_i];
-		p0_i = p0_width * i + j - array_c.ista1m;
-		mixture_c.p0[p0_i] = p0;
-	}
-	}
-
-	if ((PML_c.X1 == 0) && jsta1m_to_jend1m){
-	for (int j = grid_c.X + 1; j <= grid_c.X + array_c.me; j++){
-		p0_i = p0_width * i + (grid_c.X - (j - grid_c.X - 1)) - array_c.ista1m;
-		p0 = mixture_c.p0[p0_i];
-		p0_i = p0_width * i + j - array_c.ista1m;
-		mixture_c.p0[p0_i] = p0;
-	}
-	}
-
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //	Calculates the conductivity of the mixture based on void fraction
 //
@@ -1537,31 +1446,30 @@ int calculate_properties(int rho_l_width, int rho_m_width, int c_sl_width, int C
 
 int solve_bubble_radii(bubble_t bubbles_htod){
 
-	const int block = 128;
+	const int block = 256;
 	dim3 dimBubbleBlock(block);
-	dim3 dimBubbleGrid((numBubbles / 1 + block - 1) / (block));
+	dim3 dimBubbleGrid((numBubbles + block - 1) / (block));
 
-	int * max_iter_d, max_iter_h[numBubbles];
-	int findmaxiter = 0;
+//	int * max_iter_d, max_iter_h[numBubbles];
+//	int findmaxiter = 0;
 
-	cudaMalloc((void**)&max_iter_d, sizeof(int) * numBubbles);
+//	cudaMalloc((void**)&max_iter_d, sizeof(int) * numBubbles);
 
-//	cudaFuncSetCacheConfig(BubbleRadiusKernel, cudaFuncCachePreferL1);
-	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock>>> (max_iter_d);
+	thrust::device_vector<int> max_iter_d(numBubbles);
+
+	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock>>> (thrust::raw_pointer_cast(&max_iter_d[0]));
 //	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock, 10 * sizeof(double) * block + 2 * sizeof(doublecomplex) * block >>> (max_iter_d);
 	cudaThreadSynchronize();
 	checkCUDAError("Bubble Radius");
 
-	cudaMemcpy(max_iter_h, max_iter_d, sizeof(int)*numBubbles, cudaMemcpyDeviceToHost);
+//	cudaMemcpy(max_iter_h, max_iter_d, sizeof(int)*numBubbles, cudaMemcpyDeviceToHost);
 
-	for (int i = 0; i < numBubbles; i++){
-		if (max_iter_h[i] > findmaxiter) findmaxiter = max_iter_h[i];
-	}
+//	for (int i = 0; i < numBubbles; i++){
+//		if (max_iter_h[i] > findmaxiter) findmaxiter = max_iter_h[i];
+//	}
 
-	cutilSafeCall(cudaFree(max_iter_d));
-
-	return findmaxiter;
-//	return 0;
+//	cutilSafeCall(cudaFree(max_iter_d));
+	return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
 }
 
 int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_params_t bub_params, mix_params_t mix_params){

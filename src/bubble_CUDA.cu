@@ -6,7 +6,7 @@
 
 using namespace thrust;
 
-	
+
 // Mathematical constants
 const double 	Pi_h =  acos(-1.0);
 
@@ -37,19 +37,19 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 						bub_params_t	*bub_params,
 						plane_wave_t	*plane_wave,
 						debug_t		*debug,
-						int argc, 
+						int argc,
 						char ** argv){
 	// Clear terminal for output
 	if(system("clear")){exit(EXIT_FAILURE);}
 
-	
+
 	// Variable Declaration
 	// Storage variable for full solution (mixture and bubble data)
 	host_vector<solution_space> solution;
 
 	// Mixture Parameters
 	mix_params_t	*mix_params = (mix_params_t*) calloc(1, sizeof(mix_params_t));
-	
+
 	// Array Indices
 	array_index_t	*array_index = (array_index_t *) calloc(1, sizeof(array_index_t));
 
@@ -59,10 +59,28 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	int loop;
 	double resimax;
 	double s1, s2;
-	
+
 	int max_iter;
 
 	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceScheduleYield));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleUpdateIndexKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationScalarKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationVelocityKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleRadiusKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VoidFractionCylinderKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VoidFractionReverseLookupKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VFPredictionKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VelocityKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VXBoundaryKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VYBoundaryKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePressureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryPressureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureKMKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleHeatKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureEnergyKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureTemperatureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryTemperatureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePropertiesKernel, cudaFuncCachePreferL1));
 
 	// Initialize Variables
 	printf("Initializing\n");
@@ -76,7 +94,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		exit(EXIT_FAILURE);
 	}
 
-		
+
 	// Initialization kernels
 
 	printf("Running Ininitalization Kernels\n\n");
@@ -84,9 +102,9 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	if(update_bubble_indices()){
 		exit(EXIT_FAILURE);
 	}
-	
+
 	if(calculate_void_fraction(mixture_htod, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
-	
+
 	if(synchronize_void_fraction(mixture_htod, f_g_pitch)){exit(EXIT_FAILURE);}
 
 	// Zero all counters
@@ -98,10 +116,9 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 
 	// Stop for the user to check params
 
-	printf("Simulation ready! Press any key to continue\n");		
-
+	printf("Simulation ready! Press any key to continue\n");
 	if(system("clear")){exit(EXIT_FAILURE);}
-	
+
 	/************************
 	 * Main simulation loop	*
 	 ************************/
@@ -114,25 +131,25 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		tstep	=	tstep + (*mix_params).dt + tstepx;
 		s2	=	tstep - s1;
 		tstepx	=	(*mix_params).dt + tstepx - s2;
-		
+
 		cudaMemcpyToSymbol(tstep_c, &tstep, sizeof(double));
 		cudaThreadSynchronize();
-		checkCUDAError("Copy tstep");		
-		
+		checkCUDAError("Copy tstep");
+
 		// Store Bubble and Mixture, and predict void fraction
 		if(store_variables(mixture_htod, bubbles_htod, f_g_width, p_width, Work_width, f_g_pitch, Work_pitch, p_pitch)){exit(EXIT_FAILURE);}
 
 		// Update mixture velocity
 		if(calculate_velocity_field(vx_width, vy_width, rho_m_width, p0_width, c_sl_width)){exit(EXIT_FAILURE);}
-		
+
 		// Move the bubbles
 		if(bubble_motion(bubbles_htod, vx_width, vy_width)){exit(EXIT_FAILURE);}
-		
+
 		resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
-		
+
 		loop = 0;
 
-		
+
 		while (resimax > 1.0e-7f){
 			loop++;
 
@@ -150,98 +167,61 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 			resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
 
 			#ifdef _DEBUG_
-			printf("\033[A\033[2K");			
+			printf("\033[A\033[2K");
 			printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n", nstep, loop, resimax, max_iter);
-			#endif			
+			#endif
 			if (loop == 10000) {printf("Premature Termination at nstep %i, subloop %i\n\n", nstep, loop); break;}
 		}
-		
+
 		// Calculate mixture temperature
 		if(calculate_temperature(k_m_width, T_width, f_g_width, Ex_width, Ey_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
 		// Calculate mixture properties
 		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width)){exit(EXIT_FAILURE);}
 
 		// TODO: write in saving mechanism so that it's easier on the CPU
-		
+
 
 		if((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0)){
 			solution.resize(save_count+1);
-			solution[save_count].p0 = (double*)calloc(m1Vol, sizeof(double));
-			solution[save_count].f_g = (double*)calloc(m2Vol, sizeof(double));
-			solution[save_count].T = (double*)calloc(m2Vol, sizeof(double));
-			solution[save_count].vx = (double*)calloc(v_xVol, sizeof(double));
-			solution[save_count].vy = (double*)calloc(v_yVol, sizeof(double));
-			solution[save_count].p = (double2*)calloc(m1Vol, sizeof(double2));
-			solution[save_count].pos = (double2*)calloc(numBubbles, sizeof(double2));
-			solution[save_count].v_B = (double2*)calloc(numBubbles, sizeof(double2));
-			solution[save_count].v_L = (double2*)calloc(numBubbles, sizeof(double2));
-			solution[save_count].R_t = (double*)calloc(numBubbles, sizeof(double));
-			solution[save_count].PL_p = (double*)calloc(numBubbles, sizeof(double));
-			cudaMemcpy2D(	solution[save_count].p0, sizeof(double)*i1m,
-					mixture_htod.p0, p0_pitch,
-					sizeof(double)*i1m, j1m,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy2D(	solution[save_count].f_g, sizeof(double)*i2m,
-					mixture_htod.f_g, f_g_pitch,
-					sizeof(double)*i2m, j2m,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy2D(	solution[save_count].T, sizeof(double)*i2m,
-					mixture_htod.T, T_pitch,
-					sizeof(double)*i2m, j2m,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy2D(	solution[save_count].vx, sizeof(double)*i2n,
-					mixture_htod.vx, vx_pitch,
-					sizeof(double)*i2n, j2m,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy2D(	solution[save_count].vy, sizeof(double)*i2m,
-					mixture_htod.vy, vy_pitch,
-					sizeof(double)*i2m, j2n,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy2D(	solution[save_count].p, sizeof(double2)*i1m,
-					mixture_htod.p, p_pitch,
-					sizeof(double2)*i1m, j1n,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy(	solution[save_count].pos,
-					bubbles_htod.pos,
-					sizeof(double2)*numBubbles,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy(	solution[save_count].v_B,
-					bubbles_htod.v_B,
-					sizeof(double2)*numBubbles,
-					cudaMemcpyDeviceToHost);
-			cudaMemcpy(	solution[save_count].v_L,
-					bubbles_htod.v_L,
-					sizeof(double2)*numBubbles,
-					cudaMemcpyDeviceToHost);			
-			cudaMemcpy(	solution[save_count].R_t,
-					bubbles_htod.R_t,
-					sizeof(double)*numBubbles,
-					cudaMemcpyDeviceToHost);	
-			cudaMemcpy(	solution[save_count].PL_p,
-					bubbles_htod.PL_p,
-					sizeof(double)*numBubbles,
-					cudaMemcpyDeviceToHost);
-		printf("Simulation step : %i\ttstep : %4.2E\tdt : %4.2E\n",
-				nstep,
-				tstep,
-				mix_params->dt);
+			if (debug->p0) solution[save_count].p0 = (double*)calloc(m1Vol, sizeof(double));
+			if (debug->fg) solution[save_count].f_g = (double*)calloc(m2Vol, sizeof(double));
+			if (debug->T)solution[save_count].T = (double*)calloc(m2Vol, sizeof(double));
+			if (debug->vxy) solution[save_count].vx = (double*)calloc(v_xVol, sizeof(double));
+			if (debug->vxy) solution[save_count].vy = (double*)calloc(v_yVol, sizeof(double));
+			if (debug->pxy)solution[save_count].p = (double2*)calloc(m1Vol, sizeof(double2));
+			if (debug->bubbles)solution[save_count].pos = (double2*)calloc(numBubbles, sizeof(double2));
+			if (debug->bubbles)solution[save_count].R_t = (double*)calloc(numBubbles, sizeof(double));
+			if (debug->bubbles)solution[save_count].PL_p = (double*)calloc(numBubbles, sizeof(double));
+			if (debug->p0)cudaMemcpy2D(	solution[save_count].p0, sizeof(double)*i1m, mixture_htod.p0, p0_pitch, sizeof(double)*i1m, j1m, cudaMemcpyDeviceToHost);
+			if (debug->fg)cudaMemcpy2D(	solution[save_count].f_g, sizeof(double)*i2m, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost);
+			if (debug->T)cudaMemcpy2D(	solution[save_count].T, sizeof(double)*i2m, mixture_htod.T, T_pitch, sizeof(double)*i2m, j2m, 	cudaMemcpyDeviceToHost);
+			if (debug->vxy)cudaMemcpy2D(	solution[save_count].vx, sizeof(double)*i2n, mixture_htod.vx, vx_pitch, sizeof(double)*i2n, j2m, cudaMemcpyDeviceToHost);
+			if (debug->vxy)cudaMemcpy2D(	solution[save_count].vy, sizeof(double)*i2m, mixture_htod.vy, vy_pitch, sizeof(double)*i2m, j2n, cudaMemcpyDeviceToHost);
+			if (debug->pxy)cudaMemcpy2D(	solution[save_count].p, sizeof(double2)*i1m, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1n, cudaMemcpyDeviceToHost);
+			if (debug->bubbles)cudaMemcpy(	solution[save_count].pos, bubbles_htod.pos, sizeof(double2)*numBubbles, cudaMemcpyDeviceToHost);
+			if (debug->bubbles)cudaMemcpy(	solution[save_count].R_t, bubbles_htod.R_t, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
+			if (debug->bubbles)cudaMemcpy(	solution[save_count].PL_p, bubbles_htod.PL_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
 		#ifdef _DEBUG_
 			if(system("clear")){exit(EXIT_FAILURE);}
+		#endif
+			printf("Simulation step : %i\ttstep : %4.2E\tdt : %4.2E\n",
+					nstep,
+					tstep,
+					mix_params->dt);
+		#ifdef _DEBUG_
 			double a = debug->display - 1;
-			for (double i = 0; i <= numBubbles - 1; i += (numBubbles-1)/a){
-			printf("Bubble %i has position (%4.2E, %4.2E), velocity (%4.2E, %4.2E), and radius %4.2E. It will move by (%4.2E, %4.2E) this time step.\n",
-				(int)i,
-				solution[save_count].pos[(int)i].x,
-				solution[save_count].pos[(int)i].y,
-				solution[save_count].v_B[(int)i].x,
-				solution[save_count].v_B[(int)i].y,
-				solution[save_count].R_t[(int)i],
-				solution[save_count].v_B[(int)i].x * mix_params->dt,
-				solution[save_count].v_B[(int)i].y * mix_params->dt);
+			if(debug->bubbles){
+				for (double i = 0; i <= numBubbles - 1; i += (numBubbles-1)/a){
+				printf("Bubble %i has position (%4.2E, %4.2E), radius %4.2E.\n",
+					(int)i,
+					solution[save_count].pos[(int)i].x,
+					solution[save_count].pos[(int)i].y,
+					solution[save_count].R_t[(int)i]);
+				}
 			}
 			printf("resimax = %4.2E\n\n",resimax);
 			if(debug->fg){
-				printf("fg Grid\n");			
+				printf("fg Grid\n");
 				for (double j = 0; j <= j2m - 1; j+= (j2m-1)/a){
 				if (!j){
 				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
@@ -252,7 +232,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 				printf("(%i)\t",(int)j);
 				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
 				printf("%4.2E\t", solution[save_count].f_g[i2m * (int)j + (int)i]);
-				}	
+				}
 				printf("\n");
 				}
 			}
@@ -351,56 +331,8 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 				}
 				printf("\n");
 				}
-				printf("\n\n\n");	
 			}
-			
-			double xugrid[grid_h.xu_size];
-			double rxpgrid[grid_h.rxp_size];
-			double xudelta = 0;
-			double rxpdelta = 0;
-			cudaMemcpy(xugrid,	grid_htod.xu,
-					sizeof(double)*grid_h.xu_size,	cudaMemcpyDeviceToHost);
-			cudaMemcpy(rxpgrid,	grid_htod.rxp,
-					sizeof(double)*grid_h.rxp_size,	cudaMemcpyDeviceToHost);
-			for (int i = 0; i < grid_h.xu_size; i++){
-		//		printf("xu[%i] = %4.2E\n", i, xugrid[i]);
-				xudelta += xugrid[i] - grid_h.xu[i];
-			}
-			for (int i = 0; i < grid_h.rxp_size; i++){
-		//		printf("rxp[%i] = %4.2E\n", i, rxpgrid[i]);
-				rxpdelta += rxpgrid[i] - grid_h.rxp[i];
-			}
-			printf("delta in xu is %4.2E\n", xudelta);
-			printf("delta in rxp is %4.2E\n", rxpdelta);
-			double sigmamx[sigma_h.mx_size], sigmamy[sigma_h.my_size], sigmanx[sigma_h.nx_size], sigmany[sigma_h.ny_size];
-			double sigmadelta = 0;
-			cudaMemcpy(sigmamx, sigma_htod.mx,	
-					sizeof(double)*sigma_h.mx_size,	cudaMemcpyDeviceToHost);
-			cudaMemcpy(sigmamy,	sigma_htod.my,
-					sizeof(double)*sigma_h.my_size,	cudaMemcpyDeviceToHost);
-			cudaMemcpy(sigmanx,	sigma_htod.nx,
-					sizeof(double)*sigma_h.nx_size,	cudaMemcpyDeviceToHost);
-			cudaMemcpy(sigmany,	sigma_htod.ny,
-					sizeof(double)*sigma_h.ny_size,	cudaMemcpyDeviceToHost);
-
-			for (int i = 0; i < sigma_h.mx_size; i++){
-		//		printf("sigma mx[%i] = %4.2E\n",i, sigmamx[i]);
-				sigmadelta += sigmamx[i] - sigma_h.mx[i];
-			}
-			for (int i = 0; i < sigma_h.my_size; i++){
-		//		printf("sigma my[%i] = %4.2E\n",i, sigmamy[i]);
-				sigmadelta += sigmamy[i] - sigma_h.my[i];
-			}
-			for (int i = 0; i < sigma_h.nx_size; i++){
-		//		printf("sigma nx[%i] = %4.2E\n",i, sigmanx[i]);
-				sigmadelta += sigmanx[i] - sigma_h.nx[i];
-			}
-			for (int i = 0; i < sigma_h.ny_size; i++){
-		//		printf("sigma ny[%i] = %4.2E\n",i, sigmany[i]);
-				sigmadelta += sigmany[i] - sigma_h.ny[i];
-			}		
-			printf("delta in sigma is %4.2E\n\n\n", sigmadelta);	
-				
+			printf("\n\n\n");
 		#endif
 			save_count++;
 		}
@@ -408,7 +340,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	(((*sim_params).NSTEPMAX != 0) && (nstep < (*sim_params).NSTEPMAX))
 	||
 	(((*sim_params).TSTEPMAX != 0) && (tstep < (*sim_params).TSTEPMAX)));
-	
+
 	// Destroy the variables to prevent further errors
 	if(destroy_CUDA_variables()){
 		exit(EXIT_FAILURE);
@@ -462,8 +394,8 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	cudaMallocPitch((void **)&mixture_htod.Ey, 	&Ey_pitch,	sizeof(double)*i1m, j1n);
 	cudaMallocPitch((void **)&mixture_htod.p0, 	&p0_pitch,	sizeof(double)*i1m, j1m);
 	cudaMallocPitch((void **)&mixture_htod.p, 	&p_pitch,	sizeof(double2)*i1m, j1m);
-	cudaMallocPitch((void **)&mixture_htod.pn, 	&pn_pitch,	sizeof(double2)*i1m, j1m);	
-	
+	cudaMallocPitch((void **)&mixture_htod.pn, 	&pn_pitch,	sizeof(double2)*i1m, j1m);
+
 	#ifdef _DEBUG_
 		printf("T_pitch = %i\n", (int)T_pitch);
 		printf("vx_pitch = %i\n", (int)vx_pitch);
@@ -554,16 +486,16 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	cudaMemcpy2D(	mixture_htod.rho_l, rho_l_pitch,
 			mixture_h.rho_l, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
 			cudaMemcpyHostToDevice);
-	cudaMemcpy2D(	mixture_htod.f_g, f_g_pitch,	
+	cudaMemcpy2D(	mixture_htod.f_g, f_g_pitch,
 			mixture_h.f_g, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
 			cudaMemcpyHostToDevice);
-	cudaMemcpy2D(	mixture_htod.f_gn, f_gn_pitch,	
+	cudaMemcpy2D(	mixture_htod.f_gn, f_gn_pitch,
 			mixture_h.f_gn, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
 			cudaMemcpyHostToDevice);
 	cudaMemcpy2D(	mixture_htod.f_gm, f_gm_pitch,
 			mixture_h.f_gm, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
 			cudaMemcpyHostToDevice);
-	cudaMemcpy2D(	mixture_htod.k_m, k_m_pitch,	
+	cudaMemcpy2D(	mixture_htod.k_m, k_m_pitch,
 			mixture_h.k_m, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
 			cudaMemcpyHostToDevice);
 	cudaMemcpy2D(	mixture_htod.C_pm, C_pm_pitch,
@@ -575,7 +507,7 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	cudaMemcpy2D(	mixture_htod.Ex, Ex_pitch,
 			mixture_h.Ex, sizeof(double)*i1n, sizeof(double)*i1n, j1m,
 			cudaMemcpyHostToDevice);
-	cudaMemcpy2D(	mixture_htod.Ey, Ey_pitch,	
+	cudaMemcpy2D(	mixture_htod.Ey, Ey_pitch,
 			mixture_h.Ey, sizeof(double)*i1m, sizeof(double)*i1m, j1n,
 			cudaMemcpyHostToDevice);
 
@@ -629,8 +561,8 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 			sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
 	cudaMemcpy(bubbles_htod.v_L,	bubbles_h.v_L,
 			sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-	
-				
+
+
 //	cudaMemcpy(&sigma_htod,		&sigma_h,
 //			sizeof(sigma_t),		cudaMemcpyHostToDevice);
 
@@ -678,24 +610,24 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	// Determine the required CUDA parameters
 
 	T_width		= T_pitch 	/ sizeof(double);
-	P_width		= P_pitch	/ sizeof(double); 
-	p0_width	= p0_pitch 	/ sizeof(double); 
-	p_width		= p_pitch	/ sizeof(double2); 
-	pn_width	= pn_pitch	/ sizeof(double2); 
+	P_width		= P_pitch	/ sizeof(double);
+	p0_width	= p0_pitch 	/ sizeof(double);
+	p_width		= p_pitch	/ sizeof(double2);
+	pn_width	= pn_pitch	/ sizeof(double2);
 	vx_width	= vx_pitch	/ sizeof(double);
 	vy_width	= vy_pitch	/ sizeof(double);
-	c_sl_width	= c_sl_pitch	/ sizeof(double); 
-	rho_m_width	= rho_m_pitch	/ sizeof(double); 
-	rho_l_width	= rho_l_pitch	/ sizeof(double); 
-	f_g_width	= f_g_pitch	/ sizeof(double); 
-	f_gn_width	= f_gn_pitch	/ sizeof(double); 
-	f_gm_width	= f_gm_pitch	/ sizeof(double); 
-	k_m_width	= k_m_pitch	/ sizeof(double); 
-	C_pm_width	= C_pm_pitch	/ sizeof(double); 
-	Work_width	= Work_pitch	/ sizeof(double); 
-	Ex_width	= Ex_pitch	/ sizeof(double); 
+	c_sl_width	= c_sl_pitch	/ sizeof(double);
+	rho_m_width	= rho_m_pitch	/ sizeof(double);
+	rho_l_width	= rho_l_pitch	/ sizeof(double);
+	f_g_width	= f_g_pitch	/ sizeof(double);
+	f_gn_width	= f_gn_pitch	/ sizeof(double);
+	f_gm_width	= f_gm_pitch	/ sizeof(double);
+	k_m_width	= k_m_pitch	/ sizeof(double);
+	C_pm_width	= C_pm_pitch	/ sizeof(double);
+	Work_width	= Work_pitch	/ sizeof(double);
+	Ex_width	= Ex_pitch	/ sizeof(double);
 	Ey_width	= Ey_pitch	/ sizeof(double);
-	
+
 	return 0;
 }
 
@@ -718,7 +650,7 @@ int destroy_CUDA_variables(){
 	cutilSafeCall(cudaFree(mixture_htod.p0));
 	cutilSafeCall(cudaFree(mixture_htod.p));
 	cutilSafeCall(cudaFree(mixture_htod.pn));
-	
+
 	cutilSafeCall(cudaFree(bubbles_htod.ibm));
 	cutilSafeCall(cudaFree(bubbles_htod.ibn));
 	cutilSafeCall(cudaFree(bubbles_htod.pos));
@@ -747,11 +679,11 @@ int destroy_CUDA_variables(){
 	cutilSafeCall(cudaFree(sigma_htod.my));
 	cutilSafeCall(cudaFree(sigma_htod.nx));
 	cutilSafeCall(cudaFree(sigma_htod.ny));
-	
+
 	cutilSafeCall(cudaFree(grid_htod.xu));
 	cutilSafeCall(cudaFree(grid_htod.rxp));
 
-	
+
 	checkCUDAError("Memory Allocation");
 	return 0;
 }
@@ -769,11 +701,11 @@ int initialize_variables(	grid_t		*grid_size,
 	*plane_wave = init_plane_wave(*plane_wave, *grid_size);
 
 	// Array index
-	
+
 	*array_index = init_array(*grid_size, *sim_params);
 
 	// Mixture parameters
-	
+
 	*mix_params = init_mix();
 
 	mix_params->dt = mix_set_time_increment(*sim_params, min((*grid_size).dx,(*grid_size).dy), (*mix_params).cs_inf);
@@ -792,7 +724,7 @@ int initialize_variables(	grid_t		*grid_size,
 
 	// Bubble
 	bubbles_h = init_bub_array(bub_params, mix_params, array_index, grid_size, plane_wave);
-	
+
 	return 0;
 }
 
@@ -1249,7 +1181,7 @@ sigma_t init_sigma (	const PML_t PML,
 			itmpe = min(iendm, nx + me);
 		#ifdef _DEBUG_
 			printf("Sigma mx :\t");
-		#endif			
+		#endif
 			for (int i = itmps; i <= itmpe; i++){
 				n = i - nx + npml;
 				sigma.mx[i - ista1m]	= sigma_x_max * pow(	((double)n-0.5)
@@ -1272,7 +1204,7 @@ sigma_t init_sigma (	const PML_t PML,
 			jtmpe = min(jendm, npml);
 		#ifdef _DEBUG_
 			printf("Sigma my :\t");
-		#endif			
+		#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = npml - j + 1;
 				sigma.my[j - jsta1m]	= sigma_y_max * pow(	((double)n-0.5)
@@ -1295,7 +1227,7 @@ sigma_t init_sigma (	const PML_t PML,
 			jtmpe = min(jendm, ny + me);
 		#ifdef _DEBUG_
 			printf("Sigma my :\t");
-		#endif			
+		#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = j - ny + npml;
 				sigma.my[j - jsta1m]	= sigma_y_max * pow(	((double)n-0.5)
@@ -1318,7 +1250,7 @@ sigma_t init_sigma (	const PML_t PML,
 			itmpe = min(iendn, npml - 1);
 		#ifdef _DEBUG_
 			printf("Sigma nx :\t");
-		#endif			
+		#endif
 			for (int i = itmps; i <= itmpe; i++){
 				n = npml - i;
 				sigma.nx[i - ista2n]	= sigma_x_max * pow(	((double)n)
@@ -1341,7 +1273,7 @@ sigma_t init_sigma (	const PML_t PML,
 			itmpe = min(iendn, nx + me + ne + 1);
 		#ifdef _DEBUG_
 			printf("Sigma nx :\t");
-		#endif			
+		#endif
 			for (int i = itmps; i <= itmpe; i++){
 				n = i - nx + npml;
 				sigma.nx[i - ista2n]	= sigma_x_max * pow(	((double)n)
@@ -1364,7 +1296,7 @@ sigma_t init_sigma (	const PML_t PML,
 			jtmpe = min(jendn, npml - 1);
 		#ifdef _DEBUG_
 			printf("Sigma ny :\t");
-		#endif			
+		#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = npml - j;
 				sigma.ny[j - jsta2n]	= sigma_y_max * pow(	((double)n)
@@ -1387,7 +1319,7 @@ sigma_t init_sigma (	const PML_t PML,
 			jtmpe = min(jendn, ny + me + ne + 1);
 		#ifdef _DEBUG_
 			printf("Sigma ny :\t");
-		#endif			
+		#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = j - ny + npml;
 				sigma.ny[j - jsta2n]	= sigma_y_max * pow(	((double)n)

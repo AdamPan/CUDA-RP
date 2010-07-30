@@ -29,56 +29,10 @@
 
 #include "thrust/host_vector.h"
 #include "thrust/device_vector.h"
+#include "thrust/extrema.h"
+#include "thrust/reduce.h"
+#include "thrust/functional.h"
 #include "cudaComplex.h"
-
-
-// Depending on whether we're running inside the CUDA compiler, define the __host_
-// and __device__ intrinsics, otherwise just make the functions static to prevent
-// linkage issues (duplicate symbols and such)
-#ifdef __CUDACC__
-#define HOST __host__
-#define DEVICE __device__
-#define HOSTDEVICE __host__ __device__
-#define M_HOST __host__
-#define M_HOSTDEVICE __host__ __device__
-#else
-#define HOST static inline
-#define DEVICE static inline
-#define HOSTDEVICE static inline
-#define M_HOST inline       // note there is no static here
-#define M_HOSTDEVICE inline // (static has a different meaning for class member functions)
-#endif
-
-// Struct alignment is handled differently between the CUDA compiler and other
-// compilers (e.g. GCC, MS Visual C++ .NET)
-#ifdef __CUDACC__
-#define ALIGN(x)  __align__(x)
-#else
-#if defined(_MSC_VER) && (_MSC_VER >= 1300)
-// Visual C++ .NET and later
-#define ALIGN(x) __declspec(align(x)) 
-#else
-#if defined(__GNUC__)
-// GCC
-#define ALIGN(x)  __attribute__ ((aligned (x)))
-#else
-// all other compilers
-#define ALIGN(x) 
-#endif
-#endif
-#endif
-
-#if !defined(__DEVICE_EMULATION__) || (defined(_MSC_VER) && (_MSC_VER >= 1300))
-#define REF(x) &x
-#define ARRAYREF(x,y) (&x)[y]
-#define PTR(x) *x
-#else
-#define REF(x) x
-#define ARRAYREF(x,y) x[y]
-#define PTR(x) *x
-#endif
-
-#define MAX(a,b) ((a > b) ? a : b)
 
 #define TRUE 1
 #define FALSE 0
@@ -91,7 +45,7 @@
 #define DIMENSION 2
 
 #define TILE_BLOCK_WIDTH	32
-#define TILE_BLOCK_HEIGHT	4
+#define TILE_BLOCK_HEIGHT	8
 //#define TILE_BLOCK_SIZE	16
 #define LINEAR_BLOCK_SIZE	128
 #define HALF_LINEAR_SIZE	64
@@ -102,21 +56,16 @@
 #define WINDOW_HEIGHT	600
 #define WINDOW_WIDTH	800
 
-#define __DEVICE_EMULATION__
-
-//struct cudaGraphicsResource *cuda_pbo_resource;
-
-
 struct ALIGN(16) debug_t
 {
-	// Number of Lines to display during diagnostics
-	int display;
+	int display;	// Number of Lines to display during diagnostics
 	// Switches for display
 	bool fg;	// Void Fraction
 	bool p0;	// Pressure
 	bool pxy;	// Pressure (x and y components) 
 	bool T;		// Temperature
 	bool vxy;	// Velocity
+	bool bubbles;
 };
 
 struct ALIGN(16) array_index_t
@@ -342,24 +291,33 @@ struct ALIGN(16) solution_space
 	double2	*v_L;
 };
 
-void checkCUDAError(const char* msg);
-
 thrust::host_vector<solution_space> solve_bubbles(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
 
 int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
+
 int initialize_CUDA_variables(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 int destroy_CUDA_variables();
+
 grid_t init_grid_size(grid_t grid_size);
+
 plane_wave_t init_plane_wave(plane_wave_t plane_wave, grid_t grid_size);
+
 array_index_t init_array (const grid_t grid_size, const sim_params_t sim_params);
+
 bub_params_t	init_bub_params (bub_params_t bub_params, sim_params_t sim_params, double dt);
+
 grid_gen init_grid_vector(array_index_t array_index, grid_t grid_size);
+
 sigma_t init_sigma(const PML_t PML, const sim_params_t sim_params, const grid_t grid_size, const array_index_t array_index);
 mix_params_t init_mix();
+
 double mix_set_time_increment(sim_params_t sim_params, double dx_min, double u_max);
 mixture_t init_mix_array(mix_params_t *mix_params, array_index_t array_index);
+
 bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, array_index_t *array_index, grid_t *grid_size, plane_wave_t *plane_wave);
 bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size);
+
+void checkCUDAError(const char* msg);
 #endif
 
 

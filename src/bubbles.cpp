@@ -165,32 +165,32 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 		}
 		cout << endl;
 	}
-	
-	for (int k = 0; k < solution.size(); k++){
-		out.str("");
-		out << out_dir << "bubble_radii_" ;
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-		out_file.open((out.str()).c_str());
+	if (debug->bubbles){
+		for (int k = 0; k < solution.size(); k++){
+			out.str("");
+			out << out_dir << "bubble_radii_" ;
+				out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
+			out_file.open((out.str()).c_str());
 		
-		for (int i = 0; i < numBubbles; i++){
-			out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].R_t[i] <<  endl;
+			for (int i = 0; i < numBubbles; i++){
+				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].R_t[i] <<  endl;
+			}
+			out_file.close();
+			cout << "\r" << "Saving Bubble Radii : " << (int) 100 * (k + 1) / solution.size() << "% done" ;		
 		}
-		out_file.close();
-		cout << "\r" << "Saving Bubble Radii : " << (int) 100 * (k + 1) / solution.size() << "% done" ;		
-	}
-	for (int k = 0; k < solution.size(); k++){
-		out.str("");
-		out << out_dir << "bubble_PL_" ;
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-		out_file.open((out.str()).c_str());
+		for (int k = 0; k < solution.size(); k++){
+			out.str("");
+			out << out_dir << "bubble_PL_" ;
+				out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
+			out_file.open((out.str()).c_str());
 		
-		for (int i = 0; i < numBubbles; i++){
-			out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PL_p[i] << endl;
+			for (int i = 0; i < numBubbles; i++){
+				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PL_p[i] << endl;
+			}
+			out_file.close();
+			cout << "\r" << "Saving Bubble Liquid Pressure : " << (int) 100 * (k + 1) / solution.size() << "% done" ;		
 		}
-		out_file.close();
-		cout << "\r" << "Saving Bubble Liquid Pressure : " << (int) 100 * (k + 1) / solution.size() << "% done" ;		
 	}
-	
 	return 0;
 	
 }
@@ -293,6 +293,7 @@ int runSimulation(int argc, char **argv)
 		debug->pxy	= (bool)cf.Value("Debug", "Show p components");
 		debug->T	= (bool)cf.Value("Debug", "Show T");
 		debug->vxy	= (bool)cf.Value("Debug", "Show v");
+		debug->bubbles	= (bool)cf.Value("Debug", "Show Bubbles");
 		#endif
 	}
 	
