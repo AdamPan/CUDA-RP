@@ -50,8 +50,10 @@ static __host__ __device__ doublecomplex Upsilon(doublecomplex , double);	// Cal
 static __host__ __device__ doublecomplex solveLp(doublecomplex, double);	// Calculates Lp_N
 static __host__ __device__ double solvePG(double, double, double, double, double, doublecomplex, bub_params_t);	// Calculates PG
 
-
 /* Static utility functions */
+
+// Sorts bubbles
+static __host__ void sort(bubble_t);
 
 // Implements atomic addition for doubles
 static __inline__ __device__ double atomicAdd(double * addr, double val){
@@ -1450,25 +1452,14 @@ int solve_bubble_radii(bubble_t bubbles_htod){
 	dim3 dimBubbleBlock(block);
 	dim3 dimBubbleGrid((numBubbles + block - 1) / (block));
 
-//	int * max_iter_d, max_iter_h[numBubbles];
-//	int findmaxiter = 0;
-
-//	cudaMalloc((void**)&max_iter_d, sizeof(int) * numBubbles);
-
 	thrust::device_vector<int> max_iter_d(numBubbles);
 
+//	sort(bubbles_htod);
+
 	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock>>> (thrust::raw_pointer_cast(&max_iter_d[0]));
-//	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock, 10 * sizeof(double) * block + 2 * sizeof(doublecomplex) * block >>> (max_iter_d);
 	cudaThreadSynchronize();
 	checkCUDAError("Bubble Radius");
 
-//	cudaMemcpy(max_iter_h, max_iter_d, sizeof(int)*numBubbles, cudaMemcpyDeviceToHost);
-
-//	for (int i = 0; i < numBubbles; i++){
-//		if (max_iter_h[i] > findmaxiter) findmaxiter = max_iter_h[i];
-//	}
-
-//	cutilSafeCall(cudaFree(max_iter_d));
 	return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
 }
 
@@ -1485,29 +1476,29 @@ int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_param
 
 	int maxiter = 0;
 
-	cudaMemcpy(bubbles_h.ibm,	bubbles_htod.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.ibn,	bubbles_htod.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.pos,	bubbles_htod.pos,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_t,	bubbles_htod.R_t,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_p,	bubbles_htod.R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_pn,	bubbles_htod.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_n,	bubbles_htod.R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.R_nn,	bubbles_htod.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.d1_R_p,	bubbles_htod.d1_R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.d1_R_n,	bubbles_htod.d1_R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PG_p,	bubbles_htod.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PG_n,	bubbles_htod.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PL_p,	bubbles_htod.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PL_n,	bubbles_htod.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.PL_m,	bubbles_htod.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.Q_B,	bubbles_htod.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.n_B,	bubbles_htod.n_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.dt,	bubbles_htod.dt,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.dt_n,	bubbles_htod.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.re,	bubbles_htod.re,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.re_n,	bubbles_htod.re_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.v_B,	bubbles_htod.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-	cudaMemcpy(bubbles_h.v_L,	bubbles_htod.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.ibm,	bubbles_htod.ibm,	sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.ibn,	bubbles_htod.ibn,	sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.pos,	bubbles_htod.pos,	sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.R_t,	bubbles_htod.R_t,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.R_p,	bubbles_htod.R_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.R_pn,	bubbles_htod.R_pn,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.R_n,	bubbles_htod.R_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.R_nn,	bubbles_htod.R_nn,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.d1_R_p,	bubbles_htod.d1_R_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.d1_R_n,	bubbles_htod.d1_R_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.PG_p,	bubbles_htod.PG_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.PG_n,	bubbles_htod.PG_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.PL_p,	bubbles_htod.PL_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.PL_n,	bubbles_htod.PL_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.PL_m,	bubbles_htod.PL_m,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.Q_B,	bubbles_htod.Q_B,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.n_B,	bubbles_htod.n_B,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.dt,	bubbles_htod.dt,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.dt_n,	bubbles_htod.dt_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.re,	bubbles_htod.re,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.re_n,	bubbles_htod.re_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.v_B,	bubbles_htod.v_B,	sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
+	cudaMemcpy(bubbles_h.v_L,	bubbles_htod.v_L,	sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
 
 	int max_iter_device = solve_bubble_radii(bubbles_htod);
 
@@ -1670,5 +1661,117 @@ int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_param
 	cudaMemcpy(bubbles_htod.v_L,	bubbles_h.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
 	printf("The device iterated %i times\n", max_iter_device);
 	return maxiter;
+}
+
+void sort(bubble_t bubbles_htod){
+
+	bool ok = 0;
+
+	thrust::device_ptr<int2> ibm(bubbles_htod.ibm);
+	thrust::device_ptr<int2> ibn(bubbles_htod.ibn);
+	thrust::device_ptr<double2> pos(bubbles_htod.pos);
+	thrust::device_ptr<double> R_t(bubbles_htod.R_t);
+	thrust::device_ptr<double> R_p(bubbles_htod.R_p);
+	thrust::device_ptr<double> R_pn(bubbles_htod.R_pn);
+	thrust::device_ptr<double> R_n(bubbles_htod.R_n);
+	thrust::device_ptr<double> R_nn(bubbles_htod.R_nn);
+	thrust::device_ptr<double> d1_R_p(bubbles_htod.d1_R_p);
+	thrust::device_ptr<double> d1_R_n(&bubbles_htod.d1_R_n[0]);
+	thrust::device_ptr<double> PG_p(bubbles_htod.PG_p);
+	thrust::device_ptr<double> PG_n(bubbles_htod.PG_n);
+	thrust::device_ptr<double> PL_p(bubbles_htod.PL_p);
+	thrust::device_ptr<double> PL_n(bubbles_htod.PL_n);
+	thrust::device_ptr<double> PL_m(bubbles_htod.PL_m);
+	thrust::device_ptr<double> Q_B(bubbles_htod.Q_B);
+	thrust::device_ptr<double> n_B(bubbles_htod.n_B);
+	thrust::device_ptr<double> dt(bubbles_htod.dt);
+	thrust::device_ptr<double> dt_n(bubbles_htod.dt_n);
+	thrust::device_ptr<double> re(bubbles_htod.re);
+	thrust::device_ptr<double> re_n(bubbles_htod.re_n);
+	thrust::device_ptr<double2> v_B(bubbles_htod.v_B);
+	thrust::device_ptr<double2> v_L(bubbles_htod.v_L);
+
+	thrust::device_vector<int2> temp_i2;
+	thrust::device_vector<double> temp_d;
+	thrust::device_vector<double2> temp_d2;
+
+	thrust::device_vector<double> temp_sort;
+
+	thrust::host_vector<int> remap_h(numBubbles);
+	thrust::device_vector<int> remap(numBubbles);
+	thrust::counting_iterator<int> increments(numBubbles);
+
+	thrust::copy(increments, increments + numBubbles, remap_h.begin());
+	thrust::copy(d1_R_n, d1_R_n + numBubbles, temp_sort.begin());
+
+	thrust::stable_sort_by_key(temp_sort.begin(), temp_sort.end(), remap_h.begin());
+	remap = remap_h;
+
+	for (int i = 0; i < numBubbles; i++){
+		if (remap_h[i] != increments[i]) ok = 1;
+	}
+	if (ok){
+		printf("doing a sort");
+		getchar();
+		thrust::copy(d1_R_n, d1_R_n + numBubbles, temp_d.begin());
+		thrust::scatter(d1_R_n, d1_R_n + numBubbles, remap.begin(), temp_d.begin());
+
+		thrust::copy(ibn, ibn + numBubbles, temp_i2.begin());
+		thrust::scatter(ibn, ibn + numBubbles, remap.begin(), temp_i2.begin());
+		thrust::copy(pos, pos + numBubbles, temp_d2.begin());
+		thrust::scatter(pos, pos + numBubbles, remap.begin(), temp_d2.begin());
+
+		thrust::copy(R_t, R_t + numBubbles, temp_d.begin());
+		thrust::scatter(R_t, R_t + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(R_p, R_p + numBubbles, temp_d.begin());
+		thrust::scatter(R_p, R_p + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(R_pn, R_pn + numBubbles, temp_d.begin());
+		thrust::scatter(R_pn, R_pn + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(R_n, R_n + numBubbles, temp_d.begin());
+		thrust::scatter(R_n, R_n + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(R_nn, R_nn + numBubbles, temp_d.begin());
+		thrust::scatter(R_nn, R_nn + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(d1_R_p, d1_R_p + numBubbles, temp_d.begin());
+		thrust::scatter(d1_R_p, d1_R_p + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(d1_R_n, d1_R_n + numBubbles, temp_d.begin());
+		thrust::scatter(d1_R_n, d1_R_n + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(PG_p, PG_p + numBubbles, temp_d.begin());
+		thrust::scatter(PG_p, PG_p + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(PG_n, PG_n + numBubbles, temp_d.begin());
+		thrust::scatter(PG_n, PG_n + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(PL_p, PL_p + numBubbles, temp_d.begin());
+		thrust::scatter(PL_p, PL_p + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(PL_n, PL_n + numBubbles, temp_d.begin());
+		thrust::scatter(PL_n, PL_n + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(PL_m, PL_m + numBubbles, temp_d.begin());
+		thrust::scatter(PL_m, PL_m + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(Q_B, Q_B + numBubbles, temp_d.begin());
+		thrust::scatter(Q_B, Q_B + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(n_B, n_B + numBubbles, temp_d.begin());
+		thrust::scatter(n_B, n_B + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(dt, dt + numBubbles, temp_d.begin());
+		thrust::scatter(dt, dt + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(dt_n, dt_n + numBubbles, temp_d.begin());
+		thrust::scatter(dt_n, dt_n + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(re, re + numBubbles, temp_d.begin());
+		thrust::scatter(re, re + numBubbles, remap.begin(), temp_d.begin());
+		thrust::copy(re_n, re_n + numBubbles, temp_d.begin());
+		thrust::scatter(re_n, re_n + numBubbles, remap.begin(), temp_d.begin());
+
+		thrust::copy(v_B, v_B + numBubbles, temp_d2.begin());
+		thrust::scatter(v_B, v_B + numBubbles, remap.begin(), temp_d2.begin());
+
+		thrust::copy(v_L, v_L + numBubbles, temp_d2.begin());
+		thrust::scatter(v_L, v_L + numBubbles, remap.begin(), temp_d2.begin());
+
+		thrust::copy(d1_R_n, d1_R_n + numBubbles, temp_d.begin());
+		for (int i = 0; i < numBubbles - 1; i++){
+			if (temp_d[i + 1] < temp_d[i]){
+				printf("[%i] = %E, [%i] = %E\n", i + 1, temp_d[i+1], i, temp_d[i]);
+				getchar();
+			}
+		}
+	}
+	return;
 }
 

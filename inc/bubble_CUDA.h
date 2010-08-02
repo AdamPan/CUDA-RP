@@ -32,6 +32,9 @@
 #include "thrust/extrema.h"
 #include "thrust/reduce.h"
 #include "thrust/functional.h"
+#include "thrust/sort.h"
+#include "thrust/gather.h"
+#include "thrust/scatter.h"
 #include "cudaComplex.h"
 
 #define TRUE 1
