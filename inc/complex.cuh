@@ -1,4 +1,4 @@
-struct doublecomplex{
+struct __align__ (8) doublecomplex{
 	double real;
 	double imag;
 };
