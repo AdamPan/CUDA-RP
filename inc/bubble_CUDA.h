@@ -33,6 +33,7 @@
 #include "thrust/reduce.h"
 #include "thrust/functional.h"
 #include "thrust/sort.h"
+#include "thrust/is_sorted.h"
 #include "thrust/gather.h"
 #include "thrust/scatter.h"
 #include "cudaComplex.h"

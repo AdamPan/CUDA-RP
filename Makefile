@@ -22,7 +22,7 @@ GENCODE_ARCH	+= -gencode=arch=compute_20,code=compute_20
 # Debug mode
 dbg		:= 0
 
-fastmath	:= 1
+fastmath	:= 0
 keep		:= 0
 
 # Rules / Targets

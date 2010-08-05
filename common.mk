@@ -152,7 +152,7 @@ COMMONFLAGS += $(INCLUDES) -DUNIX
 # Debug/release configuration
 ifeq ($(dbg),1)
 	COMMONFLAGS += -g 
-	NVCCFLAGS   += -D_DEBUG -G
+	NVCCFLAGS   += -D_DEBUG -G --ptxas-options=-v
 	CXXFLAGS    += -D_DEBUG
 	CFLAGS      += -D_DEBUG
 	BINSUBDIR   := debug
@@ -161,7 +161,9 @@ else
 	COMMONFLAGS += -O2
 	BINSUBDIR   := release
 	LIBSUFFIX   := 
-	NVCCFLAGS   += --compiler-options -fno-strict-aliasing -G --ptxas-options=-v
+	NVCCFLAGS   += --compiler-options -fno-strict-aliasing
+	#--ptxas-options=-v
+	#-G --ptxas-options=-v
 	CXXFLAGS    += -fno-strict-aliasing
 	CFLAGS      += -fno-strict-aliasing
 endif

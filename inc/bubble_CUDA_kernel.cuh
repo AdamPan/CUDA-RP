@@ -43,12 +43,12 @@ static __inline__ __host__ __device__ double smooth_delta_x(const int, const dou
 static __inline__ __host__ __device__ double smooth_delta_y(const int, const double);	// y-direction
 
 // Functions used by the bubble radius solver
-static __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double * , const double * , double * , double *, bub_params_t);	// Solves the Rayleigh Plesset equation
-static __host__ __device__ double solveOmegaN(doublecomplex *, double, double, bub_params_t);	// Solves for omega_N
-static __host__ __device__ doublecomplex Alpha(double, double, double);	// Calculates alpha_N
-static __host__ __device__ doublecomplex Upsilon(doublecomplex , double);	// Calculates Upsilon
-static __host__ __device__ doublecomplex solveLp(doublecomplex, double);	// Calculates Lp_N
-static __host__ __device__ double solvePG(double, double, double, double, double, doublecomplex, bub_params_t);	// Calculates PG
+static __inline__ __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double * , const double * , double * , double *, bub_params_t);	// Solves the Rayleigh Plesset equation
+static __inline__ __host__ __device__ double solveOmegaN(doublecomplex *, double, double, bub_params_t);	// Solves for omega_N
+static __inline__ __host__ __device__ doublecomplex Alpha(double, double, double);	// Calculates alpha_N
+static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex , double);	// Calculates Upsilon
+static __inline__ __host__ __device__ doublecomplex solveLp(doublecomplex, double);	// Calculates Lp_N
+static __inline__ __host__ __device__ double solvePG(double, double, double, double, double, doublecomplex, bub_params_t);	// Calculates PG
 
 /* Static utility functions */
 
@@ -80,9 +80,9 @@ static __inline__ __host__ __device__ double2 operator+ (const double2 a, const 
 
 // intrinsic epsilon for double
 static __inline__ __host__ __device__ double epsilon(double val){
-	return 2.22044604925031308e-016;
+	//return 2.22044604925031308e-016;
 	//return 2.0e-16;
-	//return 1.0e-10;
+	return 1.0e-10;
 }
 
 // Implements hyperbolic cotangent for double precision complex variables
@@ -143,7 +143,7 @@ __inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, doubl
 	omega_N = sqrt(max(eta, 1.0e-6*epsilon(eta)));
 	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 	
-	#pragma unroll
+
 	for (int i = 0; i < 3; i++){
 		Upsilon_N = Upsilon(*alpha_N, bub_params.gam) * coef1;
 		mu_eff = bub_params.mu + Upsilon_N.imag() * PG / (4.0 * (omega_N));
@@ -169,7 +169,7 @@ static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, dou
 	else{
 		ctmp = 1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0));
 	}
-	return (3.0 * gam)/(1.0+3.0*(gam-1.0)*ctmp);
+	return make_doublecomplex((3.0 * gam), 0)/(make_doublecomplex(1.0+3.0*(gam-1.0), 0)*ctmp);
 }
 
 // returns Lp_N
@@ -405,10 +405,11 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 	const int index = blockDim.x * blockIdx.x + threadIdx.x;
 
 	double PGn, PL, Rt, omega_N;
-	double dTdr_R, SumHeat, SumVis;
+	double dTdr_R = 0, SumHeat, SumVis;
 	doublecomplex alpha_N, Lp_N;
 
-	double Rp, Rn, d1Rp, PGp, dt_L, remain, PC0, PC1, PC2, time;
+	double Rp, Rn, d1Rp, dt_L, remain, PC0, PC1, PC2, time;
+	volatile double PGp;
 
 	double temp[3];
 
@@ -444,6 +445,8 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 			Lp_N = solveLp(alpha_N, Rn);	// Solve Lp
 
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
+
+//			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
 
 			// Calculate the the partial derivative dT/dr at the surface of the bubble
 			temp[0] = 0.5*(Rp+Rn);
@@ -515,10 +518,10 @@ __global__ void VoidFractionReverseLookupKernel(int fg_width){
 		#endif
 
 		// Distribute void fraction using smooth delta function
-		#pragma unroll 2
+
 		for (int i = ibn.x + bub_params_c.mbs; i <= ibn.x + bub_params_c.mbe; i++){
 			Delta_x = smooth_delta_x(i, pos.x);
-			#pragma unroll 2
+
 			for (int j = ibn.y + bub_params_c.mbs; j <= ibn.y + bub_params_c.mbe; j++){
 				Delta_y = smooth_delta_y(j, pos.y);
 				if((i >= array_c.ista2m) && (i <= array_c.iend2m) && (j >= array_c.jsta2m) && (j <= array_c.jend2m)){
@@ -1664,115 +1667,146 @@ int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_param
 }
 
 
-void sort(bubble_t bubbles_htod){
+//void sort(bubble_t bubbles_htod){
 
-	bool ok = 0;
+//	bool ok = 0;
 
-	thrust::device_ptr<int2> ibm_d(bubbles_htod.ibm);
-	thrust::device_ptr<int2> ibn_d(bubbles_htod.ibn);
-	thrust::device_ptr<double2> pos_d(bubbles_htod.pos);
-	thrust::device_ptr<double> R_t_d(bubbles_htod.R_t);
-	thrust::device_ptr<double> R_p_d(bubbles_htod.R_p);
-	thrust::device_ptr<double> R_pn_d(bubbles_htod.R_pn);
-	thrust::device_ptr<double> R_n_d(bubbles_htod.R_n);
-	thrust::device_ptr<double> R_nn_d(bubbles_htod.R_nn);
-	thrust::device_ptr<double> d1_R_p_d(bubbles_htod.d1_R_p);
-	thrust::device_ptr<double> d1_R_n_d(bubbles_htod.d1_R_n);
-	thrust::device_ptr<double> PG_p_d(bubbles_htod.PG_p);
-	thrust::device_ptr<double> PG_n_d(bubbles_htod.PG_n);
-	thrust::device_ptr<double> PL_p_d(bubbles_htod.PL_p);
-	thrust::device_ptr<double> PL_n_d(bubbles_htod.PL_n);
-	thrust::device_ptr<double> PL_m_d(bubbles_htod.PL_m);
-	thrust::device_ptr<double> Q_B_d(bubbles_htod.Q_B);
-	thrust::device_ptr<double> n_B_d(bubbles_htod.n_B);
-	thrust::device_ptr<double> dt_d(bubbles_htod.dt);
-	thrust::device_ptr<double> dt_n_d(bubbles_htod.dt_n);
-	thrust::device_ptr<double> re_d(bubbles_htod.re);
-	thrust::device_ptr<double> re_n_d(bubbles_htod.re_n);
-	thrust::device_ptr<double2> v_B_d(bubbles_htod.v_B);
-	thrust::device_ptr<double2> v_L_d(bubbles_htod.v_L);
+//	thrust::device_ptr<int2> ibm_d(bubbles_htod.ibm);
+//	thrust::device_ptr<int2> ibn_d(bubbles_htod.ibn);
+//	thrust::device_ptr<double2> pos_d(bubbles_htod.pos);
+//	thrust::device_ptr<double> Rt_d(bubbles_htod.R_t);
+//	thrust::device_ptr<double> Rp_d(bubbles_htod.R_p);
+//	thrust::device_ptr<double> Rpn_d(bubbles_htod.R_pn);
+//	thrust::device_ptr<double> Rn_d(bubbles_htod.R_n);
+//	thrust::device_ptr<double> Rnn_d(bubbles_htod.R_nn);
+//	thrust::device_ptr<double> d1Rp_d(bubbles_htod.d1_R_p);
+//	thrust::device_ptr<double> d1Rn_d(bubbles_htod.d1_R_n);
+//	thrust::device_ptr<double> PGp_d(bubbles_htod.PG_p);
+//	thrust::device_ptr<double> PGn_d(bubbles_htod.PG_n);
+//	thrust::device_ptr<double> PLp_d(bubbles_htod.PL_p);
+//	thrust::device_ptr<double> PLn_d(bubbles_htod.PL_n);
+//	thrust::device_ptr<double> PLm_d(bubbles_htod.PL_m);
+//	thrust::device_ptr<double> QB_d(bubbles_htod.Q_B);
+//	thrust::device_ptr<double> nB_d(bubbles_htod.n_B);
+//	thrust::device_ptr<double> dt_d(bubbles_htod.dt);
+//	thrust::device_ptr<double> dtn_d(bubbles_htod.dt_n);
+//	thrust::device_ptr<double> re_d(bubbles_htod.re);
+//	thrust::device_ptr<double> ren_d(bubbles_htod.re_n);
+//	thrust::device_ptr<double2> vB_d(bubbles_htod.v_B);
+//	thrust::device_ptr<double2> vL_d(bubbles_htod.v_L);
 
-	thrust::device_vector<int2> temp_i2;
-	thrust::device_vector<double> temp_d;
-	thrust::device_vector<double2> temp_d2;
+//	thrust::device_vector<int2> temp_i2;
+//	thrust::device_vector<double> temp_d;
+//	thrust::device_vector<double2> temp_d2;
 
-	thrust::device_vector<double> temp_sort;
+//	thrust::host_vector<double> temp_sort;
 
-	thrust::host_vector<int> remap_h(numBubbles);
-	thrust::device_vector<int> remap(numBubbles);
-	thrust::counting_iterator<int> increments(numBubbles);
+//	thrust::host_vector<int> remap_h(numBubbles);
+//	thrust::device_vector<int> remap(numBubbles);
 
-	thrust::copy(increments, increments_d + numBubbles, remap_h.begin());
-	thrust::copy(d1_R_n_d, d1_R_n_d + numBubbles, temp_sort.begin());
 
-	thrust::stable_sort_by_key(temp_sort.begin(), temp_sort.end(), remap_h.begin());
-	remap = remap_h;
 
-	for (int i = 0; i < numBubbles; i++){
-		if (remap_h[i] != increments[i]) ok = 1;
-	}
-	if (ok){
-		printf("doing a sort");
-		getchar();
-		thrust::copy(d1_R_n_d, d1_R_n_d + numBubbles, temp_d.begin());
-		thrust::scatter(d1_R_n_d, d1_R_n_d + numBubbles, remap.begin(), temp_d.begin());
+//	thrust::copy(d1Rp, d1Rp + numBubbles, temp_sort.begin());
+////	thrust::transform(d1Rp, d1Rp + numBubbles, temp_sort.begin(), thrust::absolute_value<double>());
+////	thrust::for_each(temp_sort.begin(), temp_sort.end(), thrust::absolute_value<double>());
+//	thrust::stable_sort_by_key(temp_sort.begin(), temp_sort.end(), remap_h.begin());
+//	remap = remap_h;
 
-		thrust::copy(ibn_d, ibn_d + numBubbles, temp_i2.begin());
-		thrust::scatter(ibn_d, ibn_d + numBubbles, remap.begin(), temp_i2.begin());
-		thrust::copy(pos_d, pos_d + numBubbles, temp_d2.begin());
-		thrust::scatter(pos_d, pos_d + numBubbles, remap.begin(), temp_d2.begin());
+//+	thrust::counting_iterator<int> increments(0);
+//+
+//+	thrust::host_vector<int> max_iter_h = max_iter_d;
+//+
+// 
+//-	thrust::copy(increments, increments_d + numBubbles, remap_h.begin());
+//-	thrust::copy(d1_R_n_d, d1_R_n_d + numBubbles, temp_sort.begin());
+//+	thrust::sequence(remap_h.begin(), remap_h.end(), 0);
+//+	thrust::copy(d1Rp, d1Rp + numBubbles, temp_sort.begin());
+//+//	thrust::transform(d1Rp, d1Rp + numBubbles, temp_sort.begin(), thrust::absolute_value<double>());
+//+//	thrust::for_each(temp_sort.begin(), temp_sort.end(), thrust::absolute_value<double>());
+// 
+//-	thrust::stable_sort_by_key(temp_sort.begin(), temp_sort.end(), remap_h.begin());
+//+//	thrust::stable_sort_by_key(temp_sort.begin(), temp_sort.end(), remap_h.begin(), thrust::greater<double>());
+//+	thrust::stable_sort_by_key(max_iter_h.begin(), max_iter_h.end(), remap_h.begin(), thrust::greater<int>());
+// 	remap = remap_h;
+// 
+//-	for (int i = 0; i < numBubbles; i++){
+//-		if (remap_h[i] != increments[i]) ok = 1;
+//+	if (!(thrust::equal(remap_h.begin(), remap_h.end(), increments))){
+//+		printf("doing a sort\n");
+//+		
+//+//		int input[10] = {5, 4, 1, 2, 1,3,4,5};
+//+//		thrust::host_vector<int> input2(8);
+//+//		for (int i = 0; i < 8; i++){
+//+//			printf("%i ", (int)input[i]);
+//+//		}printf("\n");
+//+//		thrust::host_vector<int> sorter(8);
+//+//		thrust::copy(increments, increments + 8, sorter.begin());
+//+//		thrust::copy(input, input + 8, input2.begin());
+//+//		thrust::stable_sort_by_key(input2.begin(), input2.end(), sorter.begin(), thrust::greater<int>());
+//+//		for (int i = 0; i < 8; i++){
+//+//			printf("%i ", (int)input2[i]);
+//+//		}printf("\n");
+//+//		for (int i = 0; i < 8; i++){
+//+//			printf("%i ", (int)sorter[i]);
+//+//		}printf("\n");
+//+//		thrust::host_vector<int> output(8);
+//+//		thrust::next::gather(sorter.begin(),sorter.end(),input, output.begin());
+//+//		for (int i = 0; i < 8; i++){
+//+//			printf("%i ", (int)output[i]);
+//+//		}printf("\n");
+//+//		getchar();
+//+
+//+		thrust::copy(ibm, ibm + numBubbles, temp_i2.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_i2.begin(), ibm);
+//+		thrust::copy(ibn, ibn + numBubbles, temp_i2.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_i2.begin(), ibn);
+//+
+//+		thrust::copy(pos, pos + numBubbles, temp_d2.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d2.begin(), pos);
+//+
+//+		thrust::copy(Rt, Rt + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), Rt);
+//+		thrust::copy(Rp, Rp + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), Rp);
+//+		thrust::copy(Rpn, Rpn + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), Rpn);
+//+		thrust::copy(Rn, Rn + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), Rn);
+//+		thrust::copy(Rnn, Rnn + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), Rnn);
+//+		thrust::copy(d1Rp, d1Rp + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), d1Rp);
+//+		thrust::copy(d1Rn, d1Rn + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), d1Rn);
+//+		thrust::copy(PGp, PGp + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), PGp);
+//+		thrust::copy(PGn, PGn + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), PGn);
+//+		thrust::copy(PLp, PLp + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), PLp);
+//+		thrust::copy(PLn, PLn + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), PLn);
+//+		thrust::copy(PLm, PLm + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), PLm);
+//+		thrust::copy(Q, Q + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), Q);
+//+		thrust::copy(n, n + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), n);
+//+		thrust::copy(dt, dt + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), dt);
+//+		thrust::copy(dtn, dtn + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), dtn);
+//+		thrust::copy(re, re + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), re);
+//+		thrust::copy(ren, ren + numBubbles, temp_d.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d.begin(), ren);
+//+
+//+		thrust::copy(vB, vB + numBubbles, temp_d2.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d2.begin(), vB);
+//+		thrust::copy(vL, vL + numBubbles, temp_d2.begin());
+//+		thrust::next::gather(remap.begin(), remap.end(), temp_d2.begin(), vL);
+// 	}
 
-		thrust::copy(R_t_d, R_t_d + numBubbles, temp_d.begin());
-		thrust::scatter(R_t_d, R_t_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(R_p_d, R_p_d + numBubbles, temp_d.begin());
-		thrust::scatter(R_p_d, R_p_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(R_pn_d, R_pn_d + numBubbles, temp_d.begin());
-		thrust::scatter(R_pn_d, R_pn_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(R_n_d, R_n_d + numBubbles, temp_d.begin());
-		thrust::scatter(R_n_d, R_n_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(R_nn_d, R_nn_d + numBubbles, temp_d.begin());
-		thrust::scatter(R_nn_d, R_nn_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(d1_R_p_d, d1_R_p_d + numBubbles, temp_d.begin());
-		thrust::scatter(d1_R_p_d, d1_R_p_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(d1_R_n_d, d1_R_n_d + numBubbles, temp_d.begin());
-		thrust::scatter(d1_R_n_d, d1_R_n_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(PG_p_d, PG_p_d + numBubbles, temp_d.begin());
-		thrust::scatter(PG_p_d, PG_p_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(PG_n_d, PG_n_d + numBubbles, temp_d.begin());
-		thrust::scatter(PG_n_d, PG_n_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(PL_p_d, PL_p_d + numBubbles, temp_d.begin());
-		thrust::scatter(PL_p_d, PL_p_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(PL_n_d, PL_n_d + numBubbles, temp_d.begin());
-		thrust::scatter(PL_n_d, PL_n_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(PL_m_d, PL_m_d + numBubbles, temp_d.begin());
-		thrust::scatter(PL_m_d, PL_m_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(Q_B_d, Q_B_d + numBubbles, temp_d.begin());
-		thrust::scatter(Q_B_d, Q_B_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(n_B_d, n_B_d + numBubbles, temp_d.begin());
-		thrust::scatter(n_B_d, n_B_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(dt_d, dt_d + numBubbles, temp_d.begin());
-		thrust::scatter(dt_d, dt_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(dt_n_d, dt_n_d + numBubbles, temp_d.begin());
-		thrust::scatter(dt_n_d, dt_n_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(re_d, re_d + numBubbles, temp_d.begin());
-		thrust::scatter(re_d, re_d + numBubbles, remap.begin(), temp_d.begin());
-		thrust::copy(re_n_d, re_n_d + numBubbles, temp_d.begin());
-		thrust::scatter(re_n_d, re_n_d + numBubbles, remap.begin(), temp_d.begin());
-
-		thrust::copy(v_B_d, v_B_d + numBubbles, temp_d2.begin());
-		thrust::scatter(v_B_d, v_B_d + numBubbles, remap.begin(), temp_d2.begin());
-
-		thrust::copy(v_L_d, v_L_d + numBubbles, temp_d2.begin());
-		thrust::scatter(v_L_d, v_L_d + numBubbles, remap.begin(), temp_d2.begin());
-
-		thrust::copy(d1_R_n_d, d1_R_n_d + numBubbles, temp_d.begin());
-		for (int i = 0; i < numBubbles - 1; i++){
-			if (temp_d[i + 1] < temp_d[i]){
-				printf("[%i] = %E, [%i] = %E\n", i + 1, temp_d[i+1], i, temp_d[i]);
-				getchar();
-			}
-		}
-	}
-	return;
-}
+//	return;
+//}
 
