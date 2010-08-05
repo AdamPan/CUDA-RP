@@ -138,7 +138,6 @@ __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, 
 	omega_N = sqrt(max(eta, 1.0e-6*epsilon(eta)));
 	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 	
-
 	for (int i = 0; i < 3; i++){
 		Upsilon_N = Upsilon(*alpha_N, bub_params.gam) * coef1;
 		mu_eff = bub_params.mu + Upsilon_N.imag * PG / (4.0 * (omega_N));
@@ -317,7 +316,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 	doublecomplex alpha_N, Lp_N;
 
 	double Rp, Rn, d1Rp, dt_L, remain, PC0, PC1, PC2, time;
-	volatile double PGp;
+	double PGp;
 
 	double temp[3];
 
@@ -347,7 +346,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params_c);	// Solve the reduced order rayleigh-plesset eqn
 			time = time + dt_L;	// Increment time step
-			if (temp[2] > 10000) printf("dt_L = %4.2E", dt_L);
+			if (temp[2] ==  10000) printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag);
 
 			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params_c);	// Solve bubble natural frequency
 
@@ -1370,7 +1369,7 @@ int solve_bubble_radii(bubble_t bubbles_htod){
 	cudaThreadSynchronize();
 	checkCUDAError("Bubble Radius");
 
-	sort(bubbles_htod, max_iter_d);
+	//sort(bubbles_htod, max_iter_d);
 
 	return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
 }
@@ -1621,7 +1620,7 @@ void sort(bubble_t bubbles_htod, thrust::device_vector<int> max_iter_d){
 	thrust::stable_sort_by_key(max_iter_h.begin(), max_iter_h.end(), remap_h.begin(), thrust::greater<int>());
  	remap = remap_h;
  
-	if (!(thrust::equal(remap_h.begin(), remap_h.end(), increments))){
+	if (thrust::is_sorted(max_iter_h.begin(), max_iter_h.end(), thrust::greater<int>())){
 		printf("doing a sort\n");
 
 		thrust::copy(ibm, ibm + numBubbles, temp_i2.begin());
