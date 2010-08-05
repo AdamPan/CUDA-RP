@@ -158,7 +158,7 @@ static __forceinline__ __host__ __device__ doublecomplex Alpha(double R, double 
 static __forceinline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, double gam){
 	doublecomplex ctmp;
 	if (abs(a) > 1.0e-2){
-		ctmp = (a * complexcoth(a) - make_doublecomplex(1.0, 0.0))/(a*a);
+		ctmp = (a * coth(a) - make_doublecomplex(1.0, 0.0))/(a*a);
 	}
 	else{
 		ctmp = 1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0));
@@ -170,7 +170,7 @@ static __forceinline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a
 static __forceinline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, double R){
 	doublecomplex ctmp;
 	if(abs(a) > 1.0e-1){
-		ctmp = a * complexcoth(a) - 1.0;
+		ctmp = a * coth(a) - 1.0;
 		ctmp = (a*a - 3.0 * ctmp)/(a*a*ctmp);
 	}
 	else{
@@ -346,7 +346,6 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params_c);	// Solve the reduced order rayleigh-plesset eqn
 			time = time + dt_L;	// Increment time step
-			if (temp[2] ==  10000) printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag);
 
 			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params_c);	// Solve bubble natural frequency
 
@@ -354,7 +353,9 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
 
-//			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
+			if (isnan(PGp) || is_nan(Lp_N) || is_nan(alpha_N) || isnan(PL) || isnan(omega_N)) printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag);
+
+			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
 
 			// Calculate the the partial derivative dT/dr at the surface of the bubble
 			temp[0] = 0.5*(Rp+Rn);

@@ -56,7 +56,11 @@ __inline__ __host__ __device__ double abs (const doublecomplex a){
 	return sqrt(a.real * a.real + a.imag * a.imag);
 }
 
-__inline__ __host__ __device__ doublecomplex complexcoth(doublecomplex z){
-	double x = tanh(z.real), y = tan(z.imag);
+__inline__ __host__ __device__ doublecomplex coth(doublecomplex a){
+	double x = tanh(a.real), y = tan(a.imag);
 	return make_doublecomplex(1.0, x * y)/make_doublecomplex(x,y);
+}
+
+__inline__ __host__ __device__ bool is_nan(doublecomplex a){
+	return isnan(a.real) || isnan(a.imag);
 }
