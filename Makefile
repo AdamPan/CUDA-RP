@@ -20,7 +20,7 @@ USECUDPP := 0
 GENCODE_ARCH	+= -gencode=arch=compute_20,code=sm_20 
 GENCODE_ARCH	+= -gencode=arch=compute_20,code=compute_20
 # Debug mode
-dbg		:= 1
+dbg		:= 0
 
 fastmath	:= 0
 keep		:= 0

@@ -984,7 +984,7 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 			if ((*plane_wave).box_size){
 				if((abs(pos.x - (*plane_wave).fp.x) < 0.5 * (*plane_wave).box_size)  &&(abs(pos.y - (*plane_wave).fp.y) < 0.5 * (*plane_wave).box_size) ){
 					init_bubble = bubble_input(	pos,
-									(*mix_params).fg_inf,
+									(*bub_params).fg0,
 									*bub_params,
 									*grid_size);
 					bub.push_back(init_bubble);
@@ -992,7 +992,7 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 			}
 			else{
 				init_bubble = bubble_input(	pos,
-								(*mix_params).fg_inf,
+								(*bub_params).fg0,
 								*bub_params,
 								*grid_size);
 				bub.push_back(init_bubble);

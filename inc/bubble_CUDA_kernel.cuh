@@ -319,7 +319,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 	double temp[3];
 	
-	int ok = 5;
+	int ok = 1;
 
 	if (index < num_bubbles){
 		// Cache bubble parameters
@@ -355,7 +355,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
 
 			if (ok && (isnan(PGp) || is_nan(Lp_N) || is_nan(alpha_N) || isnan(PL) || isnan(omega_N))){
-				printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\tomega_N = %4.2E\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag, omega_N);
+				printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\tomega_N = %4.2E\tRn = %4.2E\tRp = %4.2E\td1Rp = %4.2E\tPGn = %4.2E\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag, omega_N, Rn, Rp, d1Rp, PGn);
 				ok--;
 			}
 
