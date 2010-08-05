@@ -16,7 +16,7 @@ Order	=	2
 [Simulation Parameters]
 Courant Number	=	0.10
 dt0		=	0.10
-NSTEPMAX	=	400
+NSTEPMAX	=	1000
 TSTEPMAX	=	0
 DATA_SAVE	=	100
 WRITE_20	=	25

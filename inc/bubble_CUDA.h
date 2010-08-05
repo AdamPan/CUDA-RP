@@ -36,7 +36,6 @@
 #include "thrust/is_sorted.h"
 #include "thrust/gather.h"
 #include "thrust/scatter.h"
-#include "cudaComplex.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -60,7 +59,8 @@
 #define WINDOW_HEIGHT	600
 #define WINDOW_WIDTH	800
 
-struct ALIGN(16) debug_t
+
+struct __align__(16) debug_t
 {
 	int display;	// Number of Lines to display during diagnostics
 	// Switches for display
@@ -72,7 +72,7 @@ struct ALIGN(16) debug_t
 	bool bubbles;
 };
 
-struct ALIGN(16) array_index_t
+struct __align__(16) array_index_t
 {
 	int	lmax;
 	int	ms, me, ns, ne;
@@ -84,7 +84,7 @@ struct ALIGN(16) array_index_t
 	int	jsta2m, jend2m, jsta2n, jend2n;
 };
 
-struct ALIGN(16) grid_t
+struct __align__(16) grid_t
 {
 	int	X;
 	int	Y;
@@ -94,13 +94,13 @@ struct ALIGN(16) grid_t
 	double	dy, rdy;
 };
 
-struct ALIGN(8) grid_gen
+struct __align__(8) grid_gen
 {
 	double	*xu, *rxp;
 	int xu_size, rxp_size;
 };
 
-struct ALIGN(16) sigma_t
+struct __align__(16) sigma_t
 {
 	double *mx;
 	double *my;
@@ -112,7 +112,7 @@ struct ALIGN(16) sigma_t
 	int ny_size;
 };
 
-struct ALIGN(16) PML_t
+struct __align__(16) PML_t
 {
 	bool	X0,X1,Y0,Y1;
 	int	NPML;
@@ -120,7 +120,7 @@ struct ALIGN(16) PML_t
 	double	sigma;
 };
 
-struct ALIGN(16) plane_wave_t
+struct __align__(16) plane_wave_t
 {
 	double	amp;
 	double	freq;
@@ -134,7 +134,7 @@ struct ALIGN(16) plane_wave_t
 	bool	Plane_P, Plane_V, Focused_P, Focused_V;
 };
 
-struct ALIGN(16) sim_params_t
+struct __align__(16) sim_params_t
 {
 	double	cfl;
 	double	dt0;
@@ -147,7 +147,7 @@ struct ALIGN(16) sim_params_t
 	int	WRITE_20;
 };
 
-struct ALIGN(16) bub_params_t
+struct __align__(16) bub_params_t
 {
 	double	fg0;
 	double	R0, R03;	// We cache R0^3 as well to save ops
@@ -166,7 +166,7 @@ struct ALIGN(16) bub_params_t
 	double	dt0;
 };
 
-struct ALIGN(16) mix_params_t
+struct __align__(16) mix_params_t
 {
 	double	T_inf;
 	double	P_inf;
@@ -175,7 +175,7 @@ struct ALIGN(16) mix_params_t
 	double	cs_inf;
 	double	dt;
 };
-struct ALIGN(16) mixture_t
+struct __align__(16) mixture_t
 {
 	// temperature
 	double	*T;
@@ -191,7 +191,7 @@ struct ALIGN(16) mixture_t
 	double	*Ex, *Ey;
 };
 
-struct ALIGN(16) bubble_t
+struct __align__(16) bubble_t
 {
 	// index in mid cell
 	int2	*ibm;
@@ -222,7 +222,7 @@ struct ALIGN(16) bubble_t
 	double2	*v_L;
 };
 
-struct ALIGN(16) bubble_t_aos
+struct __align__(16) bubble_t_aos
 {
 	// index in mid cell
 	int2	ibm;
@@ -253,7 +253,7 @@ struct ALIGN(16) bubble_t_aos
 	double2	v_L;
 };
 
-struct ALIGN(16) solution_space
+struct __align__(16) solution_space
 {
 	double *p0;
 	double *T;

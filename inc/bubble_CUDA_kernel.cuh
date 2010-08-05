@@ -1,4 +1,5 @@
 #include "bubble_CUDA.h"
+#include "complex.cuh"
 
 // Array sizes
 extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
@@ -43,12 +44,12 @@ static __inline__ __host__ __device__ double smooth_delta_x(const int, const dou
 static __inline__ __host__ __device__ double smooth_delta_y(const int, const double);	// y-direction
 
 // Functions used by the bubble radius solver
-static __inline__ __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double * , const double * , double * , double *, bub_params_t);	// Solves the Rayleigh Plesset equation
-static __inline__ __host__ __device__ double solveOmegaN(doublecomplex *, double, double, bub_params_t);	// Solves for omega_N
-static __inline__ __host__ __device__ doublecomplex Alpha(double, double, double);	// Calculates alpha_N
-static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex , double);	// Calculates Upsilon
-static __inline__ __host__ __device__ doublecomplex solveLp(doublecomplex, double);	// Calculates Lp_N
-static __inline__ __host__ __device__ double solvePG(double, double, double, double, double, doublecomplex, bub_params_t);	// Calculates PG
+static __forceinline__ __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double * , const double * , double * , double *, bub_params_t);	// Solves the Rayleigh Plesset equation
+static __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex *, double, double, bub_params_t);	// Solves for omega_N
+static __forceinline__ __host__ __device__ doublecomplex Alpha(double, double, double);	// Calculates alpha_N
+static __forceinline__ __host__ __device__ doublecomplex Upsilon(doublecomplex , double);	// Calculates Upsilon
+static __forceinline__ __host__ __device__ doublecomplex solveLp(doublecomplex, double);	// Calculates Lp_N
+static __forceinline__ __host__ __device__ double solvePG(double, double, double, double, double, doublecomplex, bub_params_t);	// Calculates PG
 
 /* Static utility functions */
 
@@ -85,16 +86,10 @@ static __inline__ __host__ __device__ double epsilon(double val){
 	return 1.0e-10;
 }
 
-// Implements hyperbolic cotangent for double precision complex variables
-static __inline__ __host__ __device__ doublecomplex complexcoth(doublecomplex z){
-	double x = tanh(z.real()), y = tan(z.imag());
-	return make_doublecomplex(1.0, x * y)/make_doublecomplex(x,y);
-}
-
 /* Reduced Order Bubble Dynamics Modelling Functions */
 
 // Rayleigh Plesset solver
-__inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double * PG, const double * PL, double * dt, double * remain, bub_params_t bub_params){
+__forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double * PG, const double * PL, double * dt, double * remain, bub_params_t bub_params){
 	double 	Rm, d2R, 	// Temporary radius variables
 		dtm, dtp; 	// Temporary time variables
 
@@ -126,7 +121,7 @@ __inline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp
 }
 
 // Implicit solver for omega_N and alpha_N
-__inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, double PG, double R, bub_params_t bub_params){
+__forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, double PG, double R, bub_params_t bub_params){
 	double R2 = R * R;
 	double coef1 = (bub_params.PG0 * bub_params.R03)/(PG * R * R2);
 	double coef2 = PG / (bub_params.rho * R2);
@@ -138,7 +133,7 @@ __inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, doubl
 	// Zeroeth step
 	doublecomplex Upsilon_N = make_doublecomplex(3.0*bub_params.gam, 0.0) * coef1;
 	double mu_eff = bub_params.mu;
-	double eta = Upsilon_N.real() * coef2 + value1 - mu_eff * mu_eff * coef3;
+	double eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
 
 	omega_N = sqrt(max(eta, 1.0e-6*epsilon(eta)));
 	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
@@ -146,8 +141,8 @@ __inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, doubl
 
 	for (int i = 0; i < 3; i++){
 		Upsilon_N = Upsilon(*alpha_N, bub_params.gam) * coef1;
-		mu_eff = bub_params.mu + Upsilon_N.imag() * PG / (4.0 * (omega_N));
-		eta = Upsilon_N.real() * coef2 + value1 - mu_eff * mu_eff * coef3;
+		mu_eff = bub_params.mu + Upsilon_N.imag * PG / (4.0 * (omega_N));
+		eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
 
 		omega_N = sqrt(max(eta, 1.0e-6*epsilon(eta)));
 		*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
@@ -156,15 +151,15 @@ __inline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, doubl
 }
 
 // returns alpha_N
-static __inline__ __host__ __device__ doublecomplex Alpha(double R, double omega_N, double coeff_alpha){
+static __forceinline__ __host__ __device__ doublecomplex Alpha(double R, double omega_N, double coeff_alpha){
 	return make_doublecomplex(1.0, 1.0) * sqrt(coeff_alpha * (omega_N) / (R));
 }
 
 // returns Upsilon_N
-static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, double gam){
+static __forceinline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, double gam){
 	doublecomplex ctmp;
-	if (a.abs() > 1.0e-2){
-		ctmp = (a * complexcoth(a) - 1.0)/(a*a);
+	if (abs(a) > 1.0e-2){
+		ctmp = (a * complexcoth(a) - make_doublecomplex(1.0, 0.0))/(a*a);
 	}
 	else{
 		ctmp = 1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0));
@@ -173,9 +168,9 @@ static __inline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a, dou
 }
 
 // returns Lp_N
-static __inline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, double R){
+static __forceinline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, double R){
 	doublecomplex ctmp;
-	if(a.abs() > 1.0e-1){
+	if(abs(a) > 1.0e-1){
 		ctmp = a * complexcoth(a) - 1.0;
 		ctmp = (a*a - 3.0 * ctmp)/(a*a*ctmp);
 	}
@@ -187,9 +182,9 @@ static __inline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, dou
 }
 
 // returns PG
-__inline__ __host__ __device__ double solvePG(double PGn, double Rp, double Rn, double omega_N, double dt, doublecomplex Lp_N, bub_params_t bub_params){
-	double 	Lp_NR = Lp_N.real() / (Lp_N.abs() * Lp_N.abs()),
-		Lp_NI = Lp_N.imag() / (Lp_N.abs() * Lp_N.abs()),
+__forceinline__ __host__ __device__ double solvePG(double PGn, double Rp, double Rn, double omega_N, double dt, doublecomplex Lp_N, bub_params_t bub_params){
+	double 	Lp_NR = Lp_N.real / (abs(Lp_N) * abs(Lp_N)),
+		Lp_NI = Lp_N.imag / (abs(Lp_N) * abs(Lp_N)),
 		R = 0.5 * (Rp + Rn);
 
 	double	c0 = dt*3.0*(bub_params.gam-1.0) * 2.0/(Rp + Rn) * bub_params.K0 * bub_params.T0/(bub_params.PG0 * bub_params.R03),
@@ -313,93 +308,6 @@ __global__ void BubbleMotionKernel(){
 	}
 }
 
-//// Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
-//__global__ void BubbleRadiusKernel(int * max_iter){
-//	__shared__ double PGn[128];
-//	__shared__ double PL[128];
-//	__shared__ double Rt[128];
-//	__shared__ double omega_N[128];
-//	__shared__ doublecomplex alpha_N[128];
-//	__shared__ doublecomplex Lp_N[128];
-//	__shared__ double Rp[128];
-//	__shared__ double Rn[128];
-//	__shared__ double d1Rp[128];
-//	__shared__ double PGp[128];
-//	__shared__ double dt_L[128];
-//	__shared__ double remain[128];
-
-//	const int tx = threadIdx.x;
-
-//	double dTdr_R, SumHeat, SumVis;
-
-//	double PC0, PC1, PC2, time;
-
-//	double temp[3];
-
-//	int iter;
-
-//	for (int index = blockDim.x * blockIdx.x + threadIdx.x; index < num_bubbles + gridDim.x * blockDim.x; index += gridDim.x * blockDim.x){
-//	SumHeat = 0.0;
-//	SumVis = 0.0;
-//	if (index < num_bubbles){
-//		Rp[tx] 		= bubbles_c.R_pn[index];
-//		Rn[tx]		= bubbles_c.R_nn[index];
-//		d1Rp[tx] 	= bubbles_c.d1_R_n[index];
-//		PGp[tx]		= bubbles_c.PG_n[index];
-//		dt_L[tx]	= bubbles_c.dt_n[index];
-//		remain[tx]	= bubbles_c.re_n[index] + mix_params_c.dt;
-
-//		PC0 = bubbles_c.PL_n[index] + bub_params_c.PL0;
-//		PC1 = 0.5*(bubbles_c.PL_p[index]-bubbles_c.PL_m[index])/mix_params_c.dt;
-//		PC2 = 0.5*(bubbles_c.PL_p[index]+bubbles_c.PL_m[index]-2.0*bubbles_c.PL_n[index])/(mix_params_c.dt * mix_params_c.dt);
-
-//		time = -bubbles_c.re_n[index];
-
-//		iter = 0;
-
-//		while (remain[tx] > 0.0){
-//			//d1Rn 	= 	d1Rp;
-//			PGn[tx] 	= 	PGp[tx];
-//			PL[tx] 	= 	PC2 * time * time + PC1 * time + PC0;
-
-
-//			solveRayleighPlesset(&Rt[tx], &Rp[tx], &Rn[tx], &d1Rp[tx], &PGn[tx], &PL[tx], &dt_L[tx], &remain[tx], bub_params_c);
-//			time = time + dt_L[tx];
-
-//			omega_N[tx] = solveOmegaN (&alpha_N[tx], PGn[tx], Rn[tx], bub_params_c);
-
-
-//			Lp_N[tx] = solveLp(alpha_N[tx], Rn[tx]);
-
-//			PGp[tx] = solvePG(PGn[tx], Rp[tx], Rn[tx], omega_N[tx], dt_L[tx], Lp_N[tx], bub_params_c);
-
-//			temp[0] = 0.5*(Rp[tx]+Rn[tx]);
-//			temp[1] = 1 / (Lp_N[tx].abs() * Lp_N[tx].abs()) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
-//			dTdr_R 	= 	Lp_N[tx].real() * temp[1] * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp[tx]+PGn[tx])*temp[0]*temp[0]*temp[0]) +
-//					Lp_N[tx].imag() * temp[1] * (PGp[tx] * Rp[tx] * Rp[tx] * Rp[tx] - PGn[tx] * Rn[tx] * Rn[tx] * Rn[tx]) / (omega_N[tx] * dt_L[tx]);
-
-//			SumHeat -= 4.0 * Pi * Rp[tx] * Rp[tx] * bub_params_c.K0 * dTdr_R * dt_L[tx];
-//			SumVis 	+= 4.0 * Pi * Rp[tx] * Rp[tx] * 4.0 * bub_params_c.mu * d1Rp[tx] / Rp[tx] * d1Rp[tx] * dt_L[tx];
-
-//			iter++;
-//		}
-
-//		// Assign values back to the global memory
-//		bubbles_c.R_t[index] 	= Rt[tx];
-//		bubbles_c.R_p[index] 	= Rp[tx];
-//		bubbles_c.R_n[index] 	= Rn[tx];
-//		bubbles_c.d1_R_p[index]	= d1Rp[tx];
-//		bubbles_c.PG_p[index] 	= PGp[tx];
-//		bubbles_c.dt[index]	= dt_L[tx];
-//		bubbles_c.re[index]	= remain[tx];
-//		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain[tx] + bubbles_c.re_n[index]);
-
-//		max_iter[index] = iter;
-//		//}
-//	}
-//	}
-//}
-
 // Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
 __global__ void BubbleRadiusKernel(int * max_iter){
 	const int index = blockDim.x * blockIdx.x + threadIdx.x;
@@ -439,6 +347,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params_c);	// Solve the reduced order rayleigh-plesset eqn
 			time = time + dt_L;	// Increment time step
+			if (temp[2] > 10000) printf("dt_L = %4.2E", dt_L);
 
 			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params_c);	// Solve bubble natural frequency
 
@@ -450,9 +359,9 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			// Calculate the the partial derivative dT/dr at the surface of the bubble
 			temp[0] = 0.5*(Rp+Rn);
-			temp[1] = 1 / (Lp_N.abs() * Lp_N.abs()) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
-			dTdr_R 	= 	Lp_N.real() * temp[1] * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp+PGn)*temp[0]*temp[0]*temp[0]) +
-					Lp_N.imag() * temp[1] * (PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
+			temp[1] = 1 / (abs(Lp_N) * abs(Lp_N)) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
+			dTdr_R 	= 	Lp_N.real * temp[1] * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp+PGn)*temp[0]*temp[0]*temp[0]) +
+					Lp_N.imag * temp[1] * (PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
 
 			// Accumulate bubble heat
 			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params_c.K0 * dTdr_R * dt_L;
@@ -1537,9 +1446,9 @@ int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_param
 
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params);
 
-			dTdr_R 	= 	Lp_N.real() / (Lp_N.abs() * Lp_N.abs()) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
+			dTdr_R 	= 	Lp_N.real / (abs(Lp_N) * abs(Lp_N)) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
 					(bub_params.PG0 * bub_params.R03 - 0.5*(PGp+PGn)*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))) +
-					Lp_N.imag() / (Lp_N.abs() * Lp_N.abs()) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
+					Lp_N.imag / (abs(Lp_N) * abs(Lp_N)) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
 					(PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
 
 			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params.K0 * dTdr_R * dt_L;
