@@ -122,11 +122,10 @@ __forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, doubl
 
 // Implicit solver for omega_N and alpha_N
 __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, double PG, double R, bub_params_t bub_params){
-	double R2 = R * R;
-	double coef1 = (bub_params.PG0 * bub_params.R03)/(PG * R * R2);
-	double coef2 = PG / (bub_params.rho * R2);
-	double coef3 = 4.0 / (bub_params.rho * bub_params.rho * R2 * R2);
-	double value1 = -2.0 * bub_params.sig/(bub_params.rho * R2 * R);
+	double coef1 = (bub_params.PG0 * bub_params.R03)/(PG * R * R * R);
+	double coef2 = PG / (bub_params.rho * R * R);
+	double coef3 = 4.0 / (bub_params.rho * bub_params.rho * R * R * R * R);
+	double value1 = -2.0 * bub_params.sig/(bub_params.rho * R * R * R);
 
 	double omega_N;
 
@@ -161,7 +160,7 @@ static __forceinline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a
 		ctmp = (a * coth(a) - make_doublecomplex(1.0, 0.0))/(a*a);
 	}
 	else{
-		ctmp = 1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0));
+		ctmp = make_doublecomplex(1.0/3.0, 0.0) + a*a * (make_doublecomplex(-1.0/45.0, 0.0) + a*a * (make_doublecomplex(2.0/945.0, 0.0) - a*a / make_doublecomplex(4725.0, 0.0)));
 	}
 	return make_doublecomplex((3.0 * gam), 0)/(make_doublecomplex(1.0+3.0*(gam-1.0), 0)*ctmp);
 }
@@ -170,14 +169,14 @@ static __forceinline__ __host__ __device__ doublecomplex Upsilon(doublecomplex a
 static __forceinline__ __host__ __device__ doublecomplex solveLp(doublecomplex a, double R){
 	doublecomplex ctmp;
 	if(abs(a) > 1.0e-1){
-		ctmp = a * coth(a) - 1.0;
-		ctmp = (a*a - 3.0 * ctmp)/(a*a*ctmp);
+		ctmp = a * coth(a) - make_doublecomplex(1.0, 0.0);
+		ctmp = (a*a - make_doublecomplex(3.0, 0.0) * ctmp)/(a*a*ctmp);
 	}
 	else{
-		ctmp = 1.0/5.0 + a*a*(-1.0/175.0+a*a*(2.0/7875.0 - a*a*(37.0/3031875.0)));
+		ctmp = make_doublecomplex(1.0/5.0, 0.0) + a*a*(make_doublecomplex(-1.0/175.0, 0.0)+a*a*(make_doublecomplex(2.0/7875.0, 0.0) - a*a*make_doublecomplex(37.0/3031875.0, 0.0)));
 	}
 
-	return ctmp * R;
+	return make_doublecomplex(R, 0.0) * ctmp;
 }
 
 // returns PG
@@ -319,6 +318,8 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 	double PGp;
 
 	double temp[3];
+	
+	int ok = 5;
 
 	if (index < num_bubbles){
 		// Cache bubble parameters
@@ -353,9 +354,12 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
 
-			if (isnan(PGp) || is_nan(Lp_N) || is_nan(alpha_N) || isnan(PL) || isnan(omega_N)) printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag);
+			if (ok && (isnan(PGp) || is_nan(Lp_N) || is_nan(alpha_N) || isnan(PL) || isnan(omega_N))){
+				printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\tomega_N = %4.2E\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag, omega_N);
+				ok--;
+			}
 
-			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
+//			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
 
 			// Calculate the the partial derivative dT/dr at the surface of the bubble
 			temp[0] = 0.5*(Rp+Rn);
@@ -1360,7 +1364,7 @@ int calculate_properties(int rho_l_width, int rho_m_width, int c_sl_width, int C
 
 int solve_bubble_radii(bubble_t bubbles_htod){
 
-	const int block = 256;
+	const int block = 64;
 	dim3 dimBubbleBlock(block);
 	dim3 dimBubbleGrid((numBubbles + block - 1) / (block));
 
