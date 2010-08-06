@@ -92,57 +92,52 @@ static __inline__ __host__ __device__ double epsilon(double val){
 __forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double PG, const double PL, double * dt, double * remain, const bub_params_t bub_params){
 	double 	Rm, d2R, 	// Temporary radius variables
 		dtm, dtp; 	// Temporary time variables
-
+	// Step the radius forwards
 	Rm = *Rn;
 	*Rn = *Rp;
-
+	// Calculate the effect of pressure on the 
 	d2R = ((PG - PL - 2.0*bub_params.sig/(*Rn) - 4.0*bub_params.mu/(*Rn)*(*d1R) )/bub_params.rho - 1.5*(*d1R)*(*d1R)) / (*Rn);
-
+	// Set dt based on either the first derivative of radius, or the second derivative
 	dtm = *dt;
 	dtp = min(1.01 * (*dt), bub_params.dt0);
-	
 	if (abs(*d1R) > epsilon(abs(*d1R))){
 		dtp = min(dtp, 0.01 * (*Rn)/abs(*d1R));
 	}
 	if (abs(d2R) > epsilon(abs(d2R))){
 		dtp = min(dtp, sqrt(0.01 * (*Rn)/abs(d2R)));
 	}
-
+	// Step radius forward
 	*Rt = *Rp = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp * 0.5 * (dtp + dtm)) * d2R;
 	*d1R = (dtm*dtm * (*Rp) + (-dtm*dtm + dtp*dtp) * (*Rn) - dtp*dtp * Rm)/(dtm * dtp * (dtm + dtp)) + dtp * d2R;
 	*dt = dtp;
-
+	// If we are within one timestep of synchronization, move recalculate Rt to match
 	if (dtp >= *remain){
 		dtp = *remain;
 		*Rt = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp * 0.5 * (dtp+dtm)) * d2R;
 	}
+	// Decrement the timer
 	*remain -= dtp;
-	doublecomplex Upsilon_N = Upsilon(make_doublecomplex(*Rn, *Rp), bub_params.gam);
 	return;
 }
 
 // Implicit solver for omega_N and alpha_N
 __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, const double PG, const double R, const bub_params_t bub_params){
+	// Calculate coefficients
 	double coef1 = (bub_params.PG0 * bub_params.R03)/(PG * R * R * R);
 	double coef2 = PG / (bub_params.rho * R * R);
 	double coef3 = 4.0 / (bub_params.rho * bub_params.rho * R * R * R * R);
 	double value1 = -2.0 * bub_params.sig/(bub_params.rho * R * R * R);
-
-	double omega_N;
-
 	// Zeroeth step
 	doublecomplex Upsilon_N = make_doublecomplex(3.0*bub_params.gam, 0.0) * coef1;
 	double mu_eff = bub_params.mu;
 	double eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
-
-	omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta)));
+	double omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta)));
 	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
-	
+	#pragma unroll 3
 	for (int i = 0; i < 3; i++){
 		Upsilon_N = Upsilon(*alpha_N, bub_params.gam) * coef1;
 		mu_eff = bub_params.mu + Upsilon_N.imag * PG / (4.0 * (omega_N));
 		eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
-
 		omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta)));
 		*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 	}
@@ -156,14 +151,12 @@ static __forceinline__ __host__ __device__ doublecomplex Alpha(const double R, c
 
 // returns Upsilon_N
 static __forceinline__ __host__ __device__ doublecomplex Upsilon(const doublecomplex a, const double gam){
-	doublecomplex ctmp;
 	if (abs(a) > 1.0e-2){
-		ctmp = (a * coth(a) - 1.0)/(a*a);
+		return (3.0 * gam)/(1.0 + (3.0 * ((gam - 1.0) * ((a * coth(a) - 1.0)/(a*a)))));
 	}
 	else{
-		ctmp = 1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0));
+		return (3.0 * gam)/(1.0 + (3.0 * ((gam - 1.0) * ((1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0)))))));
 	}
-	return (3.0 * gam)/(1.0 + (3.0 * ((gam - 1.0) * ctmp)));
 }
 
 // returns Lp_N
@@ -176,7 +169,6 @@ static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecom
 	else{
 		ctmp = 1.0/5.0 + a*a*(-1.0/175.0+a*a*(2.0/7875.0 - a*a*37.0/3031875.0));
 	}
-
 	return R * ctmp;
 }
 
@@ -184,13 +176,11 @@ static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecom
 __forceinline__ __host__ __device__ double solvePG(const double PGn, const double Rp, const double Rn, const double omega_N, const double dt, const doublecomplex Lp_N, const bub_params_t bub_params){
 	double 	Lp_NR = Lp_N.real / (abs(Lp_N) * abs(Lp_N)),
 		Lp_NI = Lp_N.imag / (abs(Lp_N) * abs(Lp_N)),
-		R = 0.5 * (Rp + Rn);
-
-	double	c0 = dt*3.0*(bub_params.gam-1.0) * 2.0/(Rp + Rn) * bub_params.K0 * bub_params.T0/(bub_params.PG0 * bub_params.R03),
+		R = 0.5 * (Rp + Rn),
+		c0 = dt*3.0*(bub_params.gam-1.0) * 2.0/(Rp + Rn) * bub_params.K0 * bub_params.T0/(bub_params.PG0 * bub_params.R03),
 		c3 = 1.5 * bub_params.gam/R*(Rp-Rn) + c0 * Lp_NR * 0.5 * R*R*R,
 		c1 = 1.0 + c3 - c0*Lp_NI/(omega_N * dt) * Rp*Rp*Rp,
 		c2 = 1.0 - c3 - c0*Lp_NI/(omega_N * dt) * Rn*Rn*Rn;
-
 	return (c2*PGn + c0*Lp_NR * bub_params.PG0 * bub_params.R03)/c1;
 }
 
@@ -199,9 +189,7 @@ __forceinline__ __host__ __device__ double solvePG(const double PGn, const doubl
 // Updates the positional index of an array of bubbles
 __global__ void BubbleUpdateIndexKernel(){
 	const int index = blockIdx.x * blockDim.x + threadIdx.x;
-
 	double2 pos;
-	
 	// Cache positions to shared memory
 	if (index < num_bubbles){
 		pos = bubbles_c.pos[index];
@@ -319,6 +307,8 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 	double PGp;
 
 	double temp[3];
+	
+	int ok = 1;
 
 	if (index < num_bubbles){
 		// Cache bubble parameters
@@ -353,11 +343,11 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
 
-//			if (ok && (isnan(PGp) || is_nan(Lp_N) || is_nan(alpha_N) || isnan(PL) || isnan(omega_N) || isnan(d1Rp))){
-//				printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\tomega_N = %4.2E\tRn = %4.2E\tRp = %4.2E\td1Rp = %4.2E\tPGn = %4.2E\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag, omega_N, Rn, Rp, d1Rp, PGn);
-//				ok--;
-//				return;
-//			}
+			if (ok && (isnan(PGp) || is_nan(Lp_N) || is_nan(alpha_N) || isnan(PL) || isnan(omega_N) || isnan(d1Rp))){
+				//printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\tomega_N = %4.2E\tRn = %4.2E\tRp = %4.2E\td1Rp = %4.2E\tPGn = %4.2E\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag, omega_N, Rn, Rp, d1Rp, PGn);
+				ok--;
+				return;
+			}
 
 //			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
 
