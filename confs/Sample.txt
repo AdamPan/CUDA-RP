@@ -16,9 +16,9 @@ Order	=	2
 [Simulation Parameters]
 Courant Number	=	0.10
 dt0		=	0.10
-NSTEPMAX	=	1000
+NSTEPMAX	=	300
 TSTEPMAX	=	0
-DATA_SAVE	=	100
+DATA_SAVE	=	10
 WRITE_20	=	25
 Order		=	2
 Smooth Delta Function Band	=	2
@@ -54,4 +54,4 @@ Show T		=	1
 Show p		=	1
 Show p components	=	0
 Show v		=	0
-Show Bubbles	=	0
+Show Bubbles	=	1
