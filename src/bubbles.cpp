@@ -25,8 +25,10 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 	ofstream out_file;
 	stringstream out;
 	string out_dir = "./results/";
-	string clear_dir = "rm -rf ./results/*";
+	string clear_dir = "rm -rf ./results";
+	string make_dir = "mkdir results";
 	if(system(clear_dir.c_str())){exit(EXIT_FAILURE);}
+	if(system(make_dir.c_str())){exit(EXIT_FAILURE);}
 	if(system("clear")){exit(EXIT_FAILURE);}
 	
 	cout << "Simulation complete!" << endl << endl;
