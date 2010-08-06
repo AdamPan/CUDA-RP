@@ -1,4 +1,4 @@
-struct __align__ (8) doublecomplex{
+struct __align__ (16) doublecomplex{
 	double real;
 	double imag;
 };
@@ -40,7 +40,7 @@ __inline__ __host__ __device__ doublecomplex operator* (const doublecomplex a, c
 }
 
 __inline__ __host__ __device__ doublecomplex operator* (const double a, const doublecomplex b){
-	return make_doublecomplex(b.real * a, b.imag * a);
+	return make_doublecomplex(a * b.real, a * b.imag);
 }
 
 __inline__ __host__ __device__ doublecomplex operator/ (const doublecomplex a, const doublecomplex b){
@@ -50,6 +50,11 @@ __inline__ __host__ __device__ doublecomplex operator/ (const doublecomplex a, c
 
 __inline__ __host__ __device__ doublecomplex operator/ (const doublecomplex a, const double b){
 	return make_doublecomplex(a.real / b, a.imag / b);
+}
+
+__inline__ __host__ __device__ doublecomplex operator/ (const double a, const doublecomplex b){
+	double c = (b.real * b.real + b.imag * b.imag);
+	return make_doublecomplex(a * b.real / c, -a * b.imag / c);
 }
 
 __inline__ __host__ __device__ double abs (const doublecomplex a){
