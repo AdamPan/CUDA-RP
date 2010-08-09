@@ -16,7 +16,7 @@ Order	=	2
 [Simulation Parameters]
 Courant Number	=	0.10
 dt0		=	0.10
-NSTEPMAX	=	500
+NSTEPMAX	=	700
 TSTEPMAX	=	0
 DATA_SAVE	=	100
 Order		=	2
@@ -36,6 +36,7 @@ Focused Wave (P)=	1
 Focused Wave (V)=	0
 
 [Bubble Properties]
+Enable Bubbles		=	1
 Initial Void Fraction	=	1.0e-7
 Initial Radius		=	6.5e-7
 Initial Pressure	=	0.1e6

@@ -141,6 +141,7 @@ struct __align__(16) sim_params_t
 
 struct __align__(16) bub_params_t
 {
+	double	enabled;	// Switch for enabling bubbles
 	double	fg0;		// Initial void fraction
 	double	R0, R03;	// Initial radius. We cache R0^3 as well to save ops
 	double	PL0;		// Initial liquid pressure
@@ -238,7 +239,7 @@ thrust::host_vector<solution_space> solve_bubbles(grid_t *grid_size, PML_t *PML,
 int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 
 int initialize_CUDA_variables(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
-int destroy_CUDA_variables();
+int destroy_CUDA_variables(bub_params_t *bub_params);
 
 grid_t init_grid_size(grid_t grid_size);
 

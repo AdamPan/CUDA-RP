@@ -479,16 +479,25 @@ __global__ void VelocityKernel(int vx_width, int vy_width, int rhom_width, int p
 }
 
 //	Calculates the velocity at the boundary
-//	X-direction only
-__global__ void VXBoundaryKernel(int vx_width){
+__global__ void VelocityBoundaryKernel(int vx_width, int vy_width){
 	const int index = blockDim.x * blockIdx.x + threadIdx.x;
+
+	// vx aligned indices
 	const int i2n = index + array_c.ista2n;
 	const int j2m = index + array_c.jsta2m;
+	// vy aligned indices
+	const int i2m = index + array_c.ista2m;
+	const int j2n = index + array_c.jsta2n;
 
+	// Conditions for vx
 	const bool ista2n_to_iend2n = (i2n >= array_c.ista2n) && (i2n <= array_c.iend2n);
 	const bool jstam_to_jendm = (j2m >= array_c.jstam) && (j2m <= array_c.jendm);
+	// Conditions for vy
+	const bool istam_to_iendm = ((i2m >= array_c.istam) && (i2m <= array_c.iendm));
+	const bool jsta2n_to_jend2n = ((j2n >= array_c.jsta2n) && (j2n <= array_c.jend2n));
 
-	double vx;
+	double s1, s2, xm, ym;
+	double vy, vx;
 
 	if (jstam_to_jendm){
 		if (PML_c.X0 == 0){
@@ -513,49 +522,27 @@ __global__ void VXBoundaryKernel(int vx_width){
 			mixture_c.vx[vx_width * (j - array_c.jsta2m) + index] = mixture_c.vx[vx_width * (grid_c.Y - (j - grid_c.Y - 1) - array_c.jsta2m) + index];;
 		}
 	}
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//	Calculates the velocity at the boundary
-//	Y-direction only
-//
-
-__global__ void VYBoundaryKernel(int vy_width){
-	const int BLOCK_SIZE = LINEAR_BLOCK_SIZE;
-	const int bx = blockIdx.x;
-	const int tx = threadIdx.x;
-
-	const int i = bx*BLOCK_SIZE + tx;
-
-	const int i2m = i + array_c.ista2m;
-	const int j2n = i + array_c.jsta2n;
-	
-	const bool istam_to_iendm = ((i2m >= array_c.istam) && (i2m <= array_c.iendm));
-	const bool jsta2n_to_jend2n = ((j2n >= array_c.jsta2n) && (j2n <= array_c.jend2n));
-
-	double s1, s2, xm, ym;
-	double vy;
 
 	if (istam_to_iendm){
 		if (PML_c.Y0 == 0){
 			if ((plane_wave_c.Plane_P == 0) && (plane_wave_c.Focused_P == 0)){
-				mixture_c.vy[vy_width*(0 - array_c.jsta2n) + i] = 0.0;
+				mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = 0.0;
 			}
 
-			for (int count = array_c.ns + array_c.ms; count <= -1; count++){
-				vy = mixture_c.vy[vy_width*(-(count+1) - array_c.jsta2n) + i];
-				mixture_c.vy[vy_width*(count - array_c.jsta2n) + i] = vy;
+			for (int j = array_c.ns + array_c.ms; j <= -1; j++){
+				vy = mixture_c.vy[vy_width*(-(j+1) - array_c.jsta2n) + index];
+				mixture_c.vy[vy_width*(j - array_c.jsta2n) + index] = vy;
 			}
 
 			if (plane_wave_c.Plane_V == 1){
 				if ((fmod(tstep_c, (((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq))
 					<=
 					((double) plane_wave_c.on_wave)/plane_wave_c.freq)){
-					mixture_c.vy[vy_width*(0 - array_c.jsta2n) + i]
+					mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index]
 						= plane_wave_c.amp * sin(plane_wave_c.omega * tstep_c);
 				}
 				else{
-					mixture_c.vy[vy_width*(0 - array_c.jsta2n) + i] = 0.0;
+					mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = 0.0;
 				}
 			}
 			if(plane_wave_c.Focused_V == 1){
@@ -567,46 +554,41 @@ __global__ void VYBoundaryKernel(int vy_width){
 					s1 = max(tstep_c - (plane_wave_c.f_dist - s1) / mix_params_c.cs_inf, 0.0);
 					s2 = (fmod(s1,((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq));
 					if (s2 < ((double)plane_wave_c.on_wave/plane_wave_c.freq)){
-						mixture_c.vy[vy_width*(0 - array_c.jsta2n) + i] = plane_wave_c.amp * sin(plane_wave_c.omega * s2);
+						mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = plane_wave_c.amp * sin(plane_wave_c.omega * s2);
 					}
 					else{
-						mixture_c.vy[vy_width*(0 - array_c.jsta2n) + i] = 0.0;
+						mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = 0.0;
 					}
 				}
 				else{
-					mixture_c.vy[vy_width*(0 - array_c.jsta2n) + i] = 0.0;
+					mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = 0.0;
 				}
 
 			}
 		}
 		if (PML_c.Y1 == 0){
-			mixture_c.vy[vy_width*(grid_c.Y-array_c.jsta2n) + i] = 0.0;
-			for (int count = grid_c.Y + 1; count <= grid_c.Y + array_c.ne + array_c.me; count++){
-				vy = mixture_c.vy[vy_width*(grid_c.Y - (count - grid_c.Y) - array_c.jsta2n) + i];
-				mixture_c.vy[vy_width*(count - array_c.jsta2n) + i] = vy;
+			mixture_c.vy[vy_width*(grid_c.Y-array_c.jsta2n) + index] = 0.0;
+			for (int j = grid_c.Y + 1; j <= grid_c.Y + array_c.ne + array_c.me; j++){
+				vy = mixture_c.vy[vy_width*(grid_c.Y - (j - grid_c.Y) - array_c.jsta2n) + index];
+				mixture_c.vy[vy_width*(j - array_c.jsta2n) + index] = vy;
 			}
 		}
 	}
 	if (jsta2n_to_jend2n){
-		for (int count = 1 + array_c.ms + array_c.ns; count <= 0; count++){
-			vy = mixture_c.vy[vy_width*i + 1 - count - array_c.ista2m];
-			mixture_c.vy[vy_width*i + count - array_c.ista2m] = vy;
+		for (int i = 1 + array_c.ms + array_c.ns; i <= 0; i++){
+			vy = mixture_c.vy[vy_width*index + 1 - i - array_c.ista2m];
+			mixture_c.vy[vy_width*index + i - array_c.ista2m] = vy;
 		}
-		for (int count = grid_c.X + 1; count <= grid_c.X + array_c.me + array_c.ne; count++){
-			vy = mixture_c.vy[vy_width*i + grid_c.X - (count - grid_c.X - 1) - array_c.ista2m];
-			mixture_c.vy[vy_width*i + count - array_c.ista2m] = vy;
+		for (int i = grid_c.X + 1; i <= grid_c.X + array_c.me + array_c.ne; i++){
+			vy = mixture_c.vy[vy_width*i + grid_c.X - (i - grid_c.X - 1) - array_c.ista2m];
+			mixture_c.vy[vy_width*index + i - array_c.ista2m] = vy;
 		}
 	}
 
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
 //	Calculates the mixture pressure
-//
 __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, int rhol_width, int csl_width, int p0_width, int p_width, int Work_width){
-//	__shared__ double xu[TILE_BLOCK_WIDTH + 1];
-//	__shared__ double vx[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
-//	__shared__ double vy[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
 	const int tx = threadIdx.x,	ty = threadIdx.y;
 
 	const int i = blockIdx.x*blockDim.x + tx;
@@ -622,10 +604,8 @@ __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, 
 	const int vy_i = vy_width * (j1m - array_c.jsta2n) + i1m - array_c.ista2m;
 	const int xu_i = i1m - array_c.ista2n;
 	const int Work_i = Work_width * j + i;
-	
-	const bool ok = ((i1m >= array_c.istam) && (i1m <= array_c.iendm) && (j1m >= array_c.jstam) && (j1m <= array_c.jendm));
 
-//	double s1, s2, s3, s4, s5, s6, s5;
+	const bool ok = ((i1m >= array_c.istam) && (i1m <= array_c.iendm) && (j1m >= array_c.jstam) && (j1m <= array_c.jendm));
 
 	double2 s1, s2;
 	double s3, s4, s5;
@@ -1030,20 +1010,11 @@ int update_bubble_indices(){
 }
 
 int calculate_void_fraction(mixture_t mixture_htod, int f_g_width, int f_g_pitch){
-
-	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
-	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
-			(j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
-
 	dim3 dimVFCBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimVFCGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE);
 
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
-
-//	VoidFractionClearKernel <<< dim2mGrid, dim2mBlock >>> (f_g_width);
-//	cudaThreadSynchronize();
-//	checkCUDAError("Void Fraction Clear");
 
 	cudaMemset2D(mixture_htod.f_g, f_g_pitch, 0, i2m * sizeof(double), j2m);
 	cudaThreadSynchronize();
@@ -1078,8 +1049,6 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
-//	WorkClearKernel <<< dim2mGrid, dim2mBlock >>> (Work_width);
-//	cudaThreadSynchronize();
 	cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m);
 	checkCUDAError("Clear Work Kernel");
 
@@ -1089,30 +1058,9 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
 	checkCUDAError("Void Fraction Prediction");
 
 	// Store variables
-//	MixStoreKernel <<< dim2mGrid, dim2mBlock >>> (f_g_width, p_width);
-//	cudaThreadSynchronize();
-//	checkCUDAError("Store Mixture");
-
-
-	cudaMemcpy2D(	mixture_htod.pn, p_pitch,
-			mixture_htod.p, p_pitch,
-			sizeof(double2)*i1m, j1m,
-			cudaMemcpyDeviceToDevice);
-
-	cudaMemcpy2D(	mixture_htod.f_gm, f_g_pitch,
-			mixture_htod.f_gn, f_g_pitch,
-			sizeof(double)*i2m, j2m,
-			cudaMemcpyDeviceToDevice);
-
-	cudaMemcpy2D(	mixture_htod.f_gn, f_g_pitch,
-			mixture_htod.f_g, f_g_pitch,
-			sizeof(double)*i2m, j2m,
-			cudaMemcpyDeviceToDevice);
-
-
-//	BubStoreKernel <<< dimBubbleGrid, dimBubbleBlock >>> ();
-//	cudaThreadSynchronize();
-//	checkCUDAError("Store Bubbles");
+	cudaMemcpy2D(	mixture_htod.pn, p_pitch, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1m, cudaMemcpyDeviceToDevice);
+	cudaMemcpy2D(	mixture_htod.f_gm, f_g_pitch, mixture_htod.f_gn, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice);
+	cudaMemcpy2D(	mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice);
 
 	cudaMemcpy(bubbles_htod.R_pn, bubbles_htod.R_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
 	cudaMemcpy(bubbles_htod.R_nn, bubbles_htod.R_n, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
@@ -1135,35 +1083,20 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
 }
 
 int calculate_velocity_field(int vx_width, int vy_width, int rho_m_width, int p0_width, int c_sl_width){
-	dim3 dimVXBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
-	dim3 dimVXGrid((i2n + TILE_BLOCK_WIDTH - 1) / (TILE_BLOCK_WIDTH),
-			(j2m + TILE_BLOCK_HEIGHT - 1) / (TILE_BLOCK_HEIGHT));
 
-	dim3 dimVXBBlock(LINEAR_BLOCK_SIZE);
-	dim3 dimVXBGrid((max(i2n,j2m) + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
-
-	dim3 dimVYBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
-	dim3 dimVYGrid((i2m + TILE_BLOCK_WIDTH - 1) / (TILE_BLOCK_WIDTH),
-			(j2n + TILE_BLOCK_HEIGHT - 1) / (TILE_BLOCK_HEIGHT));
-
-	dim3 dimVYBBlock(LINEAR_BLOCK_SIZE);
-	dim3 dimVYBGrid((max(i2m,j2n) + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
-	
 	dim3 dimVelocityBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
 	dim3 dimVelocityGrid((max(i2m, i2n) + TILE_BLOCK_WIDTH - 1) / (TILE_BLOCK_WIDTH),
 			(max(j2m, j2n) + TILE_BLOCK_HEIGHT - 1) / (TILE_BLOCK_HEIGHT));
 
-	cudaStream_t streams[2];
-	for (int i = 0; i < 2; i++) cudaStreamCreate(&streams[i]);
+	dim3 dimVBBlock(LINEAR_BLOCK_SIZE);
+	dim3 dimVBGrid((max(max(i2m,i2n),max(j2m,j2n)) + LINEAR_BLOCK_SIZE - 1)/ LINEAR_BLOCK_SIZE);
 
 	VelocityKernel <<< dimVelocityGrid, dimVelocityBlock >>> (vx_width, vy_width, rho_m_width, p0_width, c_sl_width);
 	cudaThreadSynchronize();
-	
-	VXBoundaryKernel <<< dimVXBGrid, dimVXBBlock, 0, streams[0] >>> (vx_width);
-	VYBoundaryKernel <<< dimVYBGrid, dimVYBBlock, 0, streams[1] >>> (vy_width);
+	checkCUDAError("Velocity");
+	VelocityBoundaryKernel <<< dimVBGrid, dimVBBlock >>> (vx_width, vy_width);
 	cudaThreadSynchronize();
-	
-	for (int i = 0; i < 2; i++) cudaStreamDestroy(streams[i]);
+	checkCUDAError("Velocity Boundary");
 
 	return 0;
 }
@@ -1193,12 +1126,9 @@ double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, dou
 	dim3 dim1mGrid((i1m + TILE_BLOCK_WIDTH - 1)/TILE_BLOCK_WIDTH,
 			(j1m + TILE_BLOCK_HEIGHT - 1)/TILE_BLOCK_HEIGHT);
 
-//	WorkClearKernel <<< dim1mGrid, dim1mBlock >>> (Work_width);
-//	cudaThreadSynchronize();
 	cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m);
 	checkCUDAError("Clear Work Kernel");
 
-//	MixturePressureKernel <<< dim1mGrid, dim1mBlock , 3 * (TILE_BLOCK_WIDTH + 1) * (TILE_BLOCK_HEIGHT + 1) * sizeof(double) >>> (vx_width, vy_width, f_g_width, rho_l_width, c_sl_width, p0_width, p_width, Work_width);
 	MixturePressureKernel <<< dim1mGrid, dim1mBlock , 3 >>> (vx_width, vy_width, f_g_width, rho_l_width, c_sl_width, p0_width, p_width, Work_width);
 	cudaThreadSynchronize();
 	checkCUDAError("Mixture Pressure");

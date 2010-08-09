@@ -71,8 +71,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VoidFractionReverseLookupKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VFPredictionKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VelocityKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VXBoundaryKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VYBoundaryKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VelocityBoundaryKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePressureKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryPressureKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureKMKernel, cudaFuncCachePreferL1));
@@ -99,13 +98,16 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 
 	printf("Running Ininitalization Kernels\n\n");
 
-	if(update_bubble_indices()){
+	if(bub_params->enabled){
+		if(update_bubble_indices()){
 		exit(EXIT_FAILURE);
+		}
 	}
 
-	if(calculate_void_fraction(mixture_htod, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
-
-	if(synchronize_void_fraction(mixture_htod, f_g_pitch)){exit(EXIT_FAILURE);}
+	if(bub_params->enabled){
+		if(calculate_void_fraction(mixture_htod, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
+		if(synchronize_void_fraction(mixture_htod, f_g_pitch)){exit(EXIT_FAILURE);}
+	}
 
 	// Zero all counters
 
@@ -142,42 +144,46 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		// Update mixture velocity
 		if(calculate_velocity_field(vx_width, vy_width, rho_m_width, p0_width, c_sl_width)){exit(EXIT_FAILURE);}
 
-		// Move the bubbles
-		if(bubble_motion(bubbles_htod, vx_width, vy_width)){exit(EXIT_FAILURE);}
+		if(bub_params->enabled){
+			// Move the bubbles
+			if(bubble_motion(bubbles_htod, vx_width, vy_width)){exit(EXIT_FAILURE);}
+		}
 
 		resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
 
 		loop = 0;
 
+		if(bub_params->enabled){
+			while (resimax > 1.0e-7f){
+				loop++;
 
-		while (resimax > 1.0e-7f){
-			loop++;
+				// Find bubble pressure
+				if(interpolate_bubble_pressure(p0_width)){exit(EXIT_FAILURE);}
 
-			// Find bubble pressure
-			if(interpolate_bubble_pressure(p0_width)){exit(EXIT_FAILURE);}
+				// Solve Rayleigh-Plesset Equations
+				//max_iter = solve_bubble_radii_host(bubbles_h, bubbles_htod, *bub_params, *mix_params);
+				max_iter = solve_bubble_radii(bubbles_htod);
 
-			// Solve Rayleigh-Plesset Equations
-			//max_iter = solve_bubble_radii_host(bubbles_h, bubbles_htod, *bub_params, *mix_params);
-			max_iter = solve_bubble_radii(bubbles_htod);
+				// Calculate Void Fraction
+				if(calculate_void_fraction(mixture_htod, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
 
-			// Calculate Void Fraction
-			if(calculate_void_fraction(mixture_htod, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
+				// Calculate Pressure
+				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
 
-			// Calculate Pressure
-			resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
-
-			#ifdef _DEBUG_
-			//printf("\033[A\033[2K");
-			printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n", nstep, loop, resimax, max_iter);
-			#endif
-			if (loop == 10000) {printf("Premature Termination at nstep %i, subloop %i\n\n", nstep, loop); break;}
+				#ifdef _DEBUG_
+				//printf("\033[A\033[2K");
+				printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n", nstep, loop, resimax, max_iter);
+				#endif
+				if (loop == 10000) {printf("Premature Termination at nstep %i, subloop %i\n\n", nstep, loop); break;}
+			}
 		}
 
+		if (bub_params->enabled){
 		// Calculate mixture temperature
 		if(calculate_temperature(k_m_width, T_width, f_g_width, Ex_width, Ey_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
 		// Calculate mixture properties
 		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width)){exit(EXIT_FAILURE);}
-
+		}
 		// TODO: write in saving mechanism so that it's easier on the CPU
 
 
@@ -342,7 +348,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	(((*sim_params).TSTEPMAX != 0) && (tstep < (*sim_params).TSTEPMAX)));
 
 	// Destroy the variables to prevent further errors
-	if(destroy_CUDA_variables()){
+	if(destroy_CUDA_variables(bub_params)){
 		exit(EXIT_FAILURE);
 	}
 
@@ -416,30 +422,32 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 		printf("pn_pitch = %i\n", (int)pn_pitch);
 	#endif
 
-	cudaMalloc((void **)	&bubbles_htod,		sizeof(bubble_t));
-	cudaMalloc((void **)	&bubbles_htod.ibm,	sizeof(int2)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.ibn,	sizeof(int2)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.pos,	sizeof(double2)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.R_t,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.R_p,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.R_pn,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.R_n,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.R_nn,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.d1_R_p,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.d1_R_n,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.PG_p,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.PG_n,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.PL_p,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.PL_n,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.PL_m,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.Q_B,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.n_B,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.dt,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.dt_n,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.re,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.re_n,	sizeof(double)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.v_B,	sizeof(double2)*numBubbles);
-	cudaMalloc((void **)	&bubbles_htod.v_L,	sizeof(double2)*numBubbles);
+	if(bub_params->enabled){
+		cudaMalloc((void **)	&bubbles_htod,		sizeof(bubble_t));
+		cudaMalloc((void **)	&bubbles_htod.ibm,	sizeof(int2)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.ibn,	sizeof(int2)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.pos,	sizeof(double2)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.R_t,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.R_p,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.R_pn,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.R_n,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.R_nn,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.d1_R_p,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.d1_R_n,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.PG_p,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.PG_n,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.PL_p,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.PL_n,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.PL_m,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.Q_B,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.n_B,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.dt,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.dt_n,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.re,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.re_n,	sizeof(double)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.v_B,	sizeof(double2)*numBubbles);
+		cudaMalloc((void **)	&bubbles_htod.v_L,	sizeof(double2)*numBubbles);
+	}
 
 	cudaMalloc((void **)	&sigma_htod,		sizeof(sigma_t));
 	cudaMalloc((void **)	&sigma_htod.mx,		sizeof(double)*sigma_h.mx_size);
@@ -513,54 +521,54 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 
 
 	checkCUDAError("Mixture To Device");
-//	cudaMemcpy(&bubbles_htod,	&bubbles_h,
-//			sizeof(bubble_t),		cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.ibm,	bubbles_h.ibm,
-			sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.ibn,	bubbles_h.ibn,
-			sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.pos,	bubbles_h.pos,
-			sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_t,	bubbles_h.R_t,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_p,	bubbles_h.R_p,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_pn,	bubbles_h.R_pn,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_n,	bubbles_h.R_n,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.R_nn,	bubbles_h.R_nn,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.d1_R_p,	bubbles_h.d1_R_p,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.d1_R_n,	bubbles_h.d1_R_n,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PG_p,	bubbles_h.PG_p,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PG_n,	bubbles_h.PG_n,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PL_p,	bubbles_h.PL_p,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PL_n,	bubbles_h.PL_n,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.PL_m,	bubbles_h.PL_m,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.Q_B,	bubbles_h.Q_B,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.n_B,	bubbles_h.n_B,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.dt,	bubbles_h.dt,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.dt_n,	bubbles_h.dt_n,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.re,	bubbles_h.re,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.re_n,	bubbles_h.re_n,
-			sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.v_B,	bubbles_h.v_B,
-			sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-	cudaMemcpy(bubbles_htod.v_L,	bubbles_h.v_L,
-			sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
+	if(bub_params->enabled){
+		cudaMemcpy(bubbles_htod.ibm,	bubbles_h.ibm,
+				sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.ibn,	bubbles_h.ibn,
+				sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.pos,	bubbles_h.pos,
+				sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.R_t,	bubbles_h.R_t,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.R_p,	bubbles_h.R_p,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.R_pn,	bubbles_h.R_pn,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.R_n,	bubbles_h.R_n,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.R_nn,	bubbles_h.R_nn,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.d1_R_p,	bubbles_h.d1_R_p,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.d1_R_n,	bubbles_h.d1_R_n,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.PG_p,	bubbles_h.PG_p,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.PG_n,	bubbles_h.PG_n,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.PL_p,	bubbles_h.PL_p,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.PL_n,	bubbles_h.PL_n,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.PL_m,	bubbles_h.PL_m,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.Q_B,	bubbles_h.Q_B,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.n_B,	bubbles_h.n_B,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.dt,	bubbles_h.dt,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.dt_n,	bubbles_h.dt_n,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.re,	bubbles_h.re,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.re_n,	bubbles_h.re_n,
+				sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.v_B,	bubbles_h.v_B,
+				sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
+		cudaMemcpy(bubbles_htod.v_L,	bubbles_h.v_L,
+				sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
+	}
 
 
 //	cudaMemcpy(&sigma_htod,		&sigma_h,
@@ -589,7 +597,6 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 
 	// Throw constants into cache
 	cutilSafeCall(cudaMemcpyToSymbol(mixture_c,	&mixture_htod,	sizeof(mixture_t)));
-	cutilSafeCall(cudaMemcpyToSymbol(bubbles_c,	&bubbles_htod,	sizeof(bubble_t)));
 
 	cutilSafeCall(cudaMemcpyToSymbol(sigma_c, &sigma_htod, sizeof(sigma_t)));
 	cutilSafeCall(cudaMemcpyToSymbol(gridgen_c, &grid_htod, sizeof(grid_gen)));
@@ -599,11 +606,16 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	cutilSafeCall(cudaMemcpyToSymbol(array_c, array_index, sizeof(array_index_t)));
 	cutilSafeCall(cudaMemcpyToSymbol(grid_c, grid_size, sizeof(grid_t)));
 	cutilSafeCall(cudaMemcpyToSymbol(sim_params_c, sim_params, sizeof(sim_params_t)));
-	cutilSafeCall(cudaMemcpyToSymbol(bub_params_c, bub_params, sizeof(bub_params_t)));
 	cutilSafeCall(cudaMemcpyToSymbol(plane_wave_c, plane_wave, sizeof(plane_wave_t)));
 	cutilSafeCall(cudaMemcpyToSymbol(mix_params_c, mix_params, sizeof(mix_params_t)));
-	cutilSafeCall(cudaMemcpyToSymbol(num_bubbles, &numBubbles, sizeof(int)));
 	cutilSafeCall(cudaMemcpyToSymbol(PML_c, PML, sizeof(PML_t)));
+
+	if(bub_params->enabled){
+		cutilSafeCall(cudaMemcpyToSymbol(bubbles_c,	&bubbles_htod,	sizeof(bubble_t)));
+		cutilSafeCall(cudaMemcpyToSymbol(bub_params_c, bub_params, sizeof(bub_params_t)));
+		cutilSafeCall(cudaMemcpyToSymbol(num_bubbles, &numBubbles, sizeof(int)));
+	}
+
 
 	checkCUDAError("Constant Memory Cache");
 
@@ -631,7 +643,7 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	return 0;
 }
 
-int destroy_CUDA_variables(){
+int destroy_CUDA_variables(bub_params_t *bub_params){
 
 	cutilSafeCall(cudaFree(mixture_htod.T));
 	cutilSafeCall(cudaFree(mixture_htod.vx));
@@ -651,29 +663,31 @@ int destroy_CUDA_variables(){
 	cutilSafeCall(cudaFree(mixture_htod.p));
 	cutilSafeCall(cudaFree(mixture_htod.pn));
 
-	cutilSafeCall(cudaFree(bubbles_htod.ibm));
-	cutilSafeCall(cudaFree(bubbles_htod.ibn));
-	cutilSafeCall(cudaFree(bubbles_htod.pos));
-	cutilSafeCall(cudaFree(bubbles_htod.R_t));
-	cutilSafeCall(cudaFree(bubbles_htod.R_p));
-	cutilSafeCall(cudaFree(bubbles_htod.R_pn));
-	cutilSafeCall(cudaFree(bubbles_htod.R_n));
-	cutilSafeCall(cudaFree(bubbles_htod.R_nn));
-	cutilSafeCall(cudaFree(bubbles_htod.d1_R_p));
-	cutilSafeCall(cudaFree(bubbles_htod.d1_R_n));
-	cutilSafeCall(cudaFree(bubbles_htod.PG_p));
-	cutilSafeCall(cudaFree(bubbles_htod.PG_n));
-	cutilSafeCall(cudaFree(bubbles_htod.PL_p));
-	cutilSafeCall(cudaFree(bubbles_htod.PL_n));
-	cutilSafeCall(cudaFree(bubbles_htod.PL_m));
-	cutilSafeCall(cudaFree(bubbles_htod.Q_B));
-	cutilSafeCall(cudaFree(bubbles_htod.n_B));
-	cutilSafeCall(cudaFree(bubbles_htod.dt));
-	cutilSafeCall(cudaFree(bubbles_htod.dt_n));
-	cutilSafeCall(cudaFree(bubbles_htod.re));
-	cutilSafeCall(cudaFree(bubbles_htod.re_n));
-	cutilSafeCall(cudaFree(bubbles_htod.v_B));
-	cutilSafeCall(cudaFree(bubbles_htod.v_L));
+	if(bub_params->enabled){
+		cutilSafeCall(cudaFree(bubbles_htod.ibm));
+		cutilSafeCall(cudaFree(bubbles_htod.ibn));
+		cutilSafeCall(cudaFree(bubbles_htod.pos));
+		cutilSafeCall(cudaFree(bubbles_htod.R_t));
+		cutilSafeCall(cudaFree(bubbles_htod.R_p));
+		cutilSafeCall(cudaFree(bubbles_htod.R_pn));
+		cutilSafeCall(cudaFree(bubbles_htod.R_n));
+		cutilSafeCall(cudaFree(bubbles_htod.R_nn));
+		cutilSafeCall(cudaFree(bubbles_htod.d1_R_p));
+		cutilSafeCall(cudaFree(bubbles_htod.d1_R_n));
+		cutilSafeCall(cudaFree(bubbles_htod.PG_p));
+		cutilSafeCall(cudaFree(bubbles_htod.PG_n));
+		cutilSafeCall(cudaFree(bubbles_htod.PL_p));
+		cutilSafeCall(cudaFree(bubbles_htod.PL_n));
+		cutilSafeCall(cudaFree(bubbles_htod.PL_m));
+		cutilSafeCall(cudaFree(bubbles_htod.Q_B));
+		cutilSafeCall(cudaFree(bubbles_htod.n_B));
+		cutilSafeCall(cudaFree(bubbles_htod.dt));
+		cutilSafeCall(cudaFree(bubbles_htod.dt_n));
+		cutilSafeCall(cudaFree(bubbles_htod.re));
+		cutilSafeCall(cudaFree(bubbles_htod.re_n));
+		cutilSafeCall(cudaFree(bubbles_htod.v_B));
+		cutilSafeCall(cudaFree(bubbles_htod.v_L));
+	}
 
 	cutilSafeCall(cudaFree(sigma_htod.mx));
 	cutilSafeCall(cudaFree(sigma_htod.my));
@@ -719,11 +733,13 @@ int initialize_variables(	grid_t		*grid_size,
 	// rxp and xu
 	grid_h = init_grid_vector (*array_index, *grid_size);
 
-	// Fill in missing bubble parameters
-	*bub_params = init_bub_params(*bub_params, *sim_params, (*mix_params).dt);
+	if(bub_params->enabled){
+		// Fill in missing bubble parameters
+		*bub_params = init_bub_params(*bub_params, *sim_params, (*mix_params).dt);
 
-	// Bubble
-	bubbles_h = init_bub_array(bub_params, mix_params, array_index, grid_size, plane_wave);
+		// Bubble
+		bubbles_h = init_bub_array(bub_params, mix_params, array_index, grid_size, plane_wave);
+	}
 
 	return 0;
 }
