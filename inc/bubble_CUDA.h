@@ -74,7 +74,7 @@ struct __align__(16) debug_t
 
 struct __align__(16) array_index_t
 {
-	int	lmax;
+//	int	lmax;
 	int	ms, me, ns, ne;
 	int	istam, iendm, istan, iendn;
 	int	ista1m, iend1m, ista1n, iend1n;
@@ -84,17 +84,15 @@ struct __align__(16) array_index_t
 	int	jsta2m, jend2m, jsta2n, jend2n;
 };
 
-struct __align__(16) grid_t
+struct __align__(8) grid_t
 {
-	int	X;
-	int	Y;
-	double	LX;
-	double	LY;
-	double	dx, rdx;
-	double	dy, rdy;
+	int	X, Y;
+	double	LX, LY;
+	double	dx, dy;
+	double	rdx, rdy;
 };
 
-struct __align__(8) grid_gen
+struct __align__(16) grid_gen
 {
 	double	*xu, *rxp;
 	int xu_size, rxp_size;
@@ -319,7 +317,7 @@ double mix_set_time_increment(sim_params_t sim_params, double dx_min, double u_m
 mixture_t init_mix_array(mix_params_t *mix_params, array_index_t array_index);
 
 bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, array_index_t *array_index, grid_t *grid_size, plane_wave_t *plane_wave);
-bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size);
+bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size, plane_wave_t plane_wave);
 
 void checkCUDAError(const char* msg);
 #endif

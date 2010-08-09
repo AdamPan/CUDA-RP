@@ -414,17 +414,16 @@ __global__ void VoidFractionReverseLookupKernel(int fg_width){
 		R_t = bubbles_c.R_t[index];
 
 		// Determine void fraction due to the bubble
-		#ifdef _CYLINDRICAL_
+		if (plane_wave_c.cylindrical){
 			fg_temp =  Pi4r3 * n_B * (R_t * R_t * R_t) * grid_c.rdx * grid_c.rdy / pos.x;
-		#else
+		}
+		else{
 			fg_temp = Pi4r3 * n_B * (R_t * R_t * R_t) * grid_c.rdx * grid_c.rdy;
-		#endif
+		}
 
 		// Distribute void fraction using smooth delta function
-
 		for (int i = ibn.x + bub_params_c.mbs; i <= ibn.x + bub_params_c.mbe; i++){
 			Delta_x = smooth_delta_x(i, pos.x);
-
 			for (int j = ibn.y + bub_params_c.mbs; j <= ibn.y + bub_params_c.mbe; j++){
 				Delta_y = smooth_delta_y(j, pos.y);
 				if((i >= array_c.ista2m) && (i <= array_c.iend2m) && (j >= array_c.jsta2m) && (j <= array_c.jend2m)){
@@ -694,13 +693,14 @@ __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, 
 //	__syncthreads();
 
 	if (ok){
-	#ifdef _CYLINDRICAL_
-//		s1 = (-xu[tx]*vx[ty][tx] + xu[tx+1]*vx[ty][tx+1]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
-		s1 = (-gridgen_c.xu[xu_i - 1] * mixture_c.vx[vx_i - 1] + gridgen_c.xu[xu_i] * mixture_c.vx[vx_i]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
-	#else
-//		s1 = (-vx[ty][tx] + vx[ty][tx+1])*grid_c.rdx;
-		s1 = (-mixture_c.vx[vx_i - 1] + mixture_c.vx[vx_i]) * grid_c.rdx;
-	#endif
+		if (plane_wave_c.cylindrical){
+//			s1 = (-xu[tx]*vx[ty][tx] + xu[tx+1]*vx[ty][tx+1]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
+			s1 = (-gridgen_c.xu[xu_i - 1] * mixture_c.vx[vx_i - 1] + gridgen_c.xu[xu_i] * mixture_c.vx[vx_i]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
+		}
+		else{
+//			s1 = (-vx[ty][tx] + vx[ty][tx+1])*grid_c.rdx;
+			s1 = (-mixture_c.vx[vx_i - 1] + mixture_c.vx[vx_i]) * grid_c.rdx;
+		}
 //		s2 = (-vy[ty][tx] + vy[ty+1][tx])*grid_c.rdy;
 //		s7 = -(f_g - f_gn)/ mix_params_c.dt / (1.0-0.5*(f_g + f_gn));
 //		s3 = mix_params_c.dt * rho_l * c_sl * c_sl;
@@ -850,11 +850,12 @@ __global__ void BubbleHeatKernel(int Work_width){
 		n_B = bubbles_c.n_B[index];
 		Q_B = bubbles_c.Q_B[index];
 
-	#ifdef _CYLINDRICAL_
-		Q_temp = n_B * Q_B * grid_c.rdx * grid_c.rdy / pos.x;
-	#else
-		Q_temp = n_B * Q_B * grid_c.rdx * grid_c.rdy;
-	#endif
+		if (plane_wave_c.cylindrical){
+			Q_temp = n_B * Q_B * grid_c.rdx * grid_c.rdy / pos.x;
+		}
+		else{
+			Q_temp = n_B * Q_B * grid_c.rdx * grid_c.rdy;
+		}
 	}
 	__syncthreads();
 	if (index < num_bubbles){
@@ -1116,9 +1117,11 @@ int calculate_void_fraction(mixture_t mixture_htod, int f_g_width, int f_g_pitch
 	cudaThreadSynchronize();
 	checkCUDAError("Void Fraction Lookup");
 
-	VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock >>> (f_g_width);
-	cudaThreadSynchronize();
-	checkCUDAError("Void Fraction Cylindrical Conditions");
+	if (plane_wave_c.cylindrical){
+		VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock >>> (f_g_width);
+		cudaThreadSynchronize();
+		checkCUDAError("Void Fraction Cylindrical Conditions");
+	}
 
 	return 0;
 }

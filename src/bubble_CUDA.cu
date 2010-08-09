@@ -764,7 +764,7 @@ array_index_t init_array(	const grid_t grid_size,
 
 	array_index_t a;
 
-	a.lmax 	= (sim_params.deltaBand+1)*(sim_params.deltaBand+1);
+//	a.lmax 	= (sim_params.deltaBand+1)*(sim_params.deltaBand+1);
 	a.ms 	= -sim_params.order/2 + 1;
 	a.me 	= sim_params.order + a.ms - 1;
 	a.ns 	= -sim_params.order/2;
@@ -798,7 +798,7 @@ array_index_t init_array(	const grid_t grid_size,
 
 #ifdef _DEBUG_
 	printf("Array Index\n");
-	printf("lmax : %i\n", a.lmax);
+//	printf("lmax : %i\n", a.lmax);
 	printf("ms : %i\t", a.ms);
 	printf("me : %i\n", a.me);
 	printf("ns : %i\t", a.ns);
@@ -986,7 +986,8 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 					init_bubble = bubble_input(	pos,
 									(*bub_params).fg0,
 									*bub_params,
-									*grid_size);
+									*grid_size,
+									*plane_wave);
 					bub.push_back(init_bubble);
 				}
 			}
@@ -994,7 +995,8 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 				init_bubble = bubble_input(	pos,
 								(*bub_params).fg0,
 								*bub_params,
-								*grid_size);
+								*grid_size,
+								*plane_wave);
 				bub.push_back(init_bubble);
 			}
 		}
@@ -1056,7 +1058,7 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 	return ret_bub;
 }
 
-bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size){
+bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size, plane_wave_t plane_wave){
 	bubble_t_aos new_bubble;
 
 	double Pi = acos(-1.0);
@@ -1073,13 +1075,14 @@ bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, gr
 
 	new_bubble.PL_p	= new_bubble.PL_n	= new_bubble.PL_m	= 0.0;
 
-	#ifdef _CYLINDRICAL_
+	if(plane_wave.cylindrical){
 		new_bubble.n_B	= fg_in * (pos.x * grid_size.dx * grid_size.dy)
 			/ (4.0 / 3.0 * Pi * pow(new_bubble.R_t,3));
-	#else
+	}
+	else{
 		new_bubble.n_B	= fg_in * (grid_size.dx * grid_size.dy)
 			/ (4.0 / 3.0 * Pi * pow(new_bubble.R_t,3));
-	#endif // _CYLINDRICAL_
+	}
 
 	new_bubble.Q_B	= 0.0;
 
