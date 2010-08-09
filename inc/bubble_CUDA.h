@@ -15,10 +15,10 @@
 
 #include <cuda_runtime.h>
 #include <cutil_inline.h>
-#include <GL/glew.h>
-#include <GL/glut.h>
-#include <cuda_gl_interop.h>
-#include <cutil_gl_inline.h>
+//#include <GL/glew.h>
+//#include <GL/glut.h>
+//#include <cuda_gl_interop.h>
+//#include <cutil_gl_inline.h>
 //#include <cutil_gl_error.h>
 //#include <rendercheck_gl.h>
 
@@ -69,13 +69,13 @@ struct __align__(16) debug_t
 	bool pxy;	// Pressure (x and y components) 
 	bool T;		// Temperature
 	bool vxy;	// Velocity
-	bool bubbles;
+	bool bubbles;	// Bubbles
 };
 
 struct __align__(16) array_index_t
 {
 //	int	lmax;
-	int	ms, me, ns, ne;
+	int	ms, me, ns, ne;			// Offsets for midpoint, nodepoint
 	int	istam, iendm, istan, iendn;
 	int	ista1m, iend1m, ista1n, iend1n;
 	int	ista2m, iend2m, ista2n, iend2n;
@@ -86,82 +86,76 @@ struct __align__(16) array_index_t
 
 struct __align__(8) grid_t
 {
-	int	X, Y;
-	double	LX, LY;
-	double	dx, dy;
-	double	rdx, rdy;
+	int	X, Y;		// Grid dimension in cells
+	double	LX, LY;		// Grid dimension in millimeters
+	double	dx, dy;		// Cell dimension in millimeters
+	double	rdx, rdy;	// Radial dimensions in millimeters
 };
 
 struct __align__(16) grid_gen
 {
-	double	*xu, *rxp;
+	double	*xu, *rxp;	// array pointers for xu and rxp
 	int xu_size, rxp_size;
 };
 
 struct __align__(16) sigma_t
 {
-	double *mx;
-	double *my;
-	double *nx;
-	double *ny;
-	int mx_size;
-	int my_size;
-	int nx_size;
-	int ny_size;
+	double *mx, *my;	// Sigma for midpoints
+	double *nx, *ny;	// Sigma for nodepoints
+	int mx_size, my_size;
+	int nx_size, ny_size;
 };
 
 struct __align__(16) PML_t
 {
-	bool	X0,X1,Y0,Y1;
-	int	NPML;
-	int	order;
-	double	sigma;
+	bool	X0, X1, Y0, Y1;	// Flags for PML boundaries
+	int	NPML;		// Depth of PML in cells 
+	int	order;		// PML order
+	double	sigma;		// sigma used for PML layer
 };
 
 struct __align__(16) plane_wave_t
 {
-	double	amp;
-	double	freq;
-	double	f_dist;
-	double	box_size;
-	bool	cylindrical;
+	double	amp;		// Wave amplitude
+	double	freq;		// Frequency
+	double	f_dist;		// Focal distance
+	double	box_size;	// Size of the "box"
+	bool	cylindrical;	// Flag for cylindrical condition
 	int	on_wave;
 	int	off_wave;
-	double2	fp;
+	double2	fp;		// Focal point (calculated from focal distance)
 	double	omega;
-	bool	Plane_P, Plane_V, Focused_P, Focused_V;
+	bool	Plane_P, Plane_V, Focused_P, Focused_V;	// Flags for types of waves
 };
 
 struct __align__(16) sim_params_t
 {
-	double	cfl;
-	double	dt0;
-	int	order;
-	int	deltaBand;
-	
-	unsigned int	NSTEPMAX;
-	int	TSTEPMAX;
-	int	DATA_SAVE;
-	int	WRITE_20;
+	double	cfl;		// Courant number
+	double	dt0;		// Timestep size
+	int	order;		// Order of FDTD
+	int	deltaBand;	// Bandwidth of smooth delta function
+	unsigned int	NSTEPMAX;	// Maximum number of steps in simulation
+	int	TSTEPMAX;		// Maximum simulation time
+	int	DATA_SAVE;	// Interval to save images
 };
 
 struct __align__(16) bub_params_t
 {
-	double	fg0;
-	double	R0, R03;	// We cache R0^3 as well to save ops
-	double	PL0;
-	double	PG0;
-	double	T0;
-	double	gam;
-	double	sig;
-	double	mu;
-	double	rho;
-	double	K0;
-	double	coeff_alpha;
+	double	fg0;		// Initial void fraction
+	double	R0, R03;	// Initial radius. We cache R0^3 as well to save ops
+	double	PL0;		// Initial liquid pressure
+	double	PG0;		// Initial gas pressure
+	double	T0;		// Initial temperature
+	double	gam;		// Gamma
+	double	sig;		// Surface tension
+	double	mu;		// Viscosity
+	double	rho;		// Density
+	double	K0;		// Heat capacity
+	double	coeff_alpha;	// Coefficient used in calculation of Alpha_N
 	int	mbs, mbe;
 	int	nbs, nbe;
-	int	np, npi;
-	double	dt0;
+	int	np, npi;	// Number of bubbles
+	double	dt0;		// Bubble default timestep
 };
 
 struct __align__(16) mix_params_t
@@ -171,126 +165,72 @@ struct __align__(16) mix_params_t
 	double	fg_inf;
 	double	rho_inf;
 	double	cs_inf;
-	double	dt;
+	double	dt;		// Mixture timestep
 };
 struct __align__(16) mixture_t
 {
-	// temperature
-	double	*T;
-	// pressure
-	double	*p0;
-	double2	*p, *pn;
-	double	*vx, *vy;
-	double	*c_sl;
-	double	*rho_m, *rho_l;
-	double	*f_g,*f_gn,*f_gm;
-	double	*k_m, *C_pm;
-	double	*Work;
-	double	*Ex, *Ey;
+	double	*T;			// Temperature
+	double	*p0;			// Magnitude of pressure
+	double2	*p, *pn;		// Pressure components
+	double	*vx, *vy;		// Velocity
+	double	*c_sl;			// Speed of sound
+	double	*rho_m, *rho_l;		// Density
+	double	*f_g,*f_gn,*f_gm;	// Void fraction
+	double	*k_m, *C_pm;		// Km and Heat capacity
+	double	*Work;			// Temporary array
+	double	*Ex, *Ey;		// Mixture energy
 };
 
 struct __align__(16) bubble_t
 {
-	// index in mid cell
-	int2	*ibm;
-	// index in node cell
-	int2	*ibn;
-	// position
-	double2	*pos;
-	// radius
-	double	*R_t;
-	double	*R_p, *R_pn;
-	double	*R_n, *R_nn;
-	// time derivative of radius
-	double	*d1_R_p, *d1_R_n;
-	// gas pressure
-	double	*PG_p, *PG_n;
-	// liquid pressure
-	double	*PL_p, *PL_n, *PL_m;
-	double	*Q_B;
-	// number weight of reference bubble
-	double	*n_B;
-	// time increment
-	double	*dt, *dt_n;
-	// remaining time
-	double	*re, *re_n;
-	// velocity of bubble
-	double2	*v_B;
-	// velocity of liquid
-	double2	*v_L;
+	int2	*ibm;		// index in mid cell
+	int2	*ibn;		// index in node cell
+	double2	*pos;		// position
+	double	*R_t;		// radius at mixture timestep
+	double	*R_p, *R_pn;		// Radius variables used in Rayleigh Plesset solution
+	double	*R_n, *R_nn;		//
+	double	*d1_R_p, *d1_R_n;	// time derivative of radius
+	double	*PG_p, *PG_n;		// gas pressure
+	double	*PL_p, *PL_n, *PL_m;	// liquid pressure
+	double	*Q_B;		// Bubble heat
+	double	*n_B;		// number weight of reference bubble
+	double	*dt, *dt_n;	// time increment
+	double	*re, *re_n;	// remaining time
+	double2	*v_B;	// velocity of bubble
+	double2	*v_L;	// velocity of liquid around bubble
 };
 
 struct __align__(16) bubble_t_aos
 {
-	// index in mid cell
-	int2	ibm;
-	// index in node cell
-	int2	ibn;
-	// position
-	double2	pos;
-	// radius
-	double	R_t;
-	double	R_p, R_pn;
-	double	R_n, R_nn;
-	// time derivative of radius
-	double	d1_R_p, d1_R_n;
-	// gas pressure
-	double	PG_p, PG_n;
-	// liquid pressure
-	double	PL_p, PL_n, PL_m;
-	double	Q_B;
-	// number weight of reference bubble
-	double	n_B;
-	// time increment
-	double	dt, dt_n;
-	// remaining time
-	double	re, re_n;
-	// velocity of bubble
-	double2	v_B;
-	// velocity of liquid
-	double2	v_L;
+	int2	ibm;		// index in mid cell
+	int2	ibn;		// index in node cell
+	double2	pos;		// position
+	double	R_t;		// radius at mixture timestep
+	double	R_p, R_pn;		// Radius variables used in Rayleigh Plesset solution
+	double	R_n, R_nn;		//
+	double	d1_R_p, d1_R_n;	// time derivative of radius
+	double	PG_p, PG_n;		// gas pressure
+	double	PL_p, PL_n, PL_m;	// liquid pressure
+	double	Q_B;		// Bubble heat
+	double	n_B;		// number weight of reference bubble
+	double	dt, dt_n;	// time increment
+	double	re, re_n;	// remaining time
+	double2	v_B;	// velocity of bubble
+	double2	v_L;	// velocity of liquid around bubble
 };
 
 struct __align__(16) solution_space
 {
-	double *p0;
-	double *T;
-	double2	*p, *pn;
-	double	*vx, *vy;
-	double	*c_sl;
-	double	*rho_m, *rho_l;
-	double	*f_g,*f_gn,*f_gm;
-	double	*k_m, *C_pm;
-	double	*Work;
-	double	*Ex, *Ey;
-	
-	// index in mid cell
-	int2	*ibm;
-	// index in node cell
-	int2	*ibn;
-	// position
-	double2	*pos;
-	// radius
-	double	*R_t;
-	double	*R_p, *R_pn;
-	double	*R_n, *R_nn;
-	// time derivative of radius
-	double	*d1_R_p, *d1_R_n;
-	// gas pressure
-	double	*PG_p, *PG_n;
-	// liquid pressure
-	double	*PL_p, *PL_n, *PL_m;
-	double	*Q_B;
-	// number weight of reference bubble
-	double	*n_B;
-	// time increment
-	double	*dt, *dt_n;
-	// remaining time
-	double	*re, *re_n;
-	// velocity of bubble
-	double2	*v_B;
-	// velocity of liquid
-	double2	*v_L;
+	double	*T;			// Temperature
+	double	*p0;			// Magnitude of pressure
+	double2	*p;		// Pressure components
+	double	*vx, *vy;		// Velocity
+	double	*f_g;	// Void fraction
+
+	double2	*pos;		// position
+	double	*R_t;		// radius at mixture timestep
+	double	*PG_p;		// gas pressure
+	double	*Q_B;		// Bubble heat
 };
 
 thrust::host_vector<solution_space> solve_bubbles(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
@@ -306,7 +246,7 @@ plane_wave_t init_plane_wave(plane_wave_t plane_wave, grid_t grid_size);
 
 array_index_t init_array (const grid_t grid_size, const sim_params_t sim_params);
 
-bub_params_t	init_bub_params (bub_params_t bub_params, sim_params_t sim_params, double dt);
+bub_params_t init_bub_params (bub_params_t bub_params, sim_params_t sim_params, double dt);
 
 grid_gen init_grid_vector(array_index_t array_index, grid_t grid_size);
 

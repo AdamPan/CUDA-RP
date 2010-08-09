@@ -68,7 +68,7 @@ static __inline__ __device__ double atomicAdd(double * addr, double val){
                                         __double_as_longlong(val+assumed)));	// Pull down down the variable, and compare and swap when we have the chance. Note that atomicCAS returns the new value at addr.
     } while( assumed!=old );
 
-    return old;	// We return the final value, to conform with other atomicAdd() implementations
+    return old;	// We return the old value, to conform with other atomicAdd() implementations
 }
 
 static __inline__ __host__ __device__ double2 operator* (const double2 a, const double b){
@@ -81,9 +81,7 @@ static __inline__ __host__ __device__ double2 operator+ (const double2 a, const 
 
 // intrinsic epsilon for double
 static __inline__ __host__ __device__ double epsilon(double val){
-	//return 2.22044604925031308e-016;
-	//return 2.0e-16;
-	return 1.0e-10;
+	return 2.22044604925031308e-016;
 }
 
 /* Reduced Order Bubble Dynamics Modelling Functions */
@@ -133,6 +131,8 @@ __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, 
 	double eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
 	double omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta)));
 	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
+
+	// Steps 1 - 3
 	#pragma unroll 3
 	for (int i = 0; i < 3; i++){
 		Upsilon_N = Upsilon(*alpha_N, bub_params.gam) * coef1;
@@ -146,7 +146,7 @@ __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, 
 
 // returns alpha_N
 static __forceinline__ __host__ __device__ doublecomplex Alpha(const double R, const double omega_N, const double coeff_alpha){
-	return make_doublecomplex(1.0, 1.0) * sqrt(coeff_alpha * (omega_N) / (R));
+	return sqrt(coeff_alpha * (omega_N) / (R)) * make_doublecomplex(1.0, 1.0);
 }
 
 // returns Upsilon_N
@@ -164,7 +164,7 @@ static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecom
 	doublecomplex ctmp;
 	if(abs(a) > 1.0e-1){
 		ctmp = a * coth(a) - 1.0;
-		ctmp = (a*a - 3.0 * ctmp)/(a*a*ctmp);
+		ctmp = (a*a - ctmp * 3.0)/(a*a*ctmp);
 	}
 	else{
 		ctmp = 1.0/5.0 + a*a*(-1.0/175.0+a*a*(2.0/7875.0 - a*a*37.0/3031875.0));

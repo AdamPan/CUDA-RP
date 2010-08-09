@@ -187,7 +187,7 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out_file.open((out.str()).c_str());
 		
 			for (int i = 0; i < numBubbles; i++){
-				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PL_p[i] << endl;
+				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PG_p[i] << endl;
 			}
 			out_file.close();
 			cout << "\r" << "Saving Bubble Liquid Pressure : " << (int) 100 * (k + 1) / solution.size() << "% done" ;		
@@ -254,7 +254,6 @@ int runSimulation(int argc, char **argv)
 		sim_params->NSTEPMAX	= (int)	cf.Value("Simulation Parameters", "NSTEPMAX");
 		sim_params->TSTEPMAX	= (int)	cf.Value("Simulation Parameters", "TSTEPMAX");
 		sim_params->DATA_SAVE	= (int)	cf.Value("Simulation Parameters", "DATA_SAVE");
-		sim_params->WRITE_20	= (int)	cf.Value("Simulation Parameters", "WRITE_20");
 		sim_params->order	= (int)	cf.Value("Simulation Parameters", "Order");
 		sim_params->deltaBand	= (int)	cf.Value("Simulation Parameters", "Smooth Delta Function Band");
 		

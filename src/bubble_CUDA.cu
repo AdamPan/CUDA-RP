@@ -191,7 +191,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 			if (debug->pxy)solution[save_count].p = (double2*)calloc(m1Vol, sizeof(double2));
 			if (debug->bubbles)solution[save_count].pos = (double2*)calloc(numBubbles, sizeof(double2));
 			if (debug->bubbles)solution[save_count].R_t = (double*)calloc(numBubbles, sizeof(double));
-			if (debug->bubbles)solution[save_count].PL_p = (double*)calloc(numBubbles, sizeof(double));
+			if (debug->bubbles)solution[save_count].PG_p = (double*)calloc(numBubbles, sizeof(double));
 			if (debug->p0)cudaMemcpy2D(	solution[save_count].p0, sizeof(double)*i1m, mixture_htod.p0, p0_pitch, sizeof(double)*i1m, j1m, cudaMemcpyDeviceToHost);
 			if (debug->fg)cudaMemcpy2D(	solution[save_count].f_g, sizeof(double)*i2m, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost);
 			if (debug->T)cudaMemcpy2D(	solution[save_count].T, sizeof(double)*i2m, mixture_htod.T, T_pitch, sizeof(double)*i2m, j2m, 	cudaMemcpyDeviceToHost);
@@ -200,7 +200,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 			if (debug->pxy)cudaMemcpy2D(	solution[save_count].p, sizeof(double2)*i1m, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1n, cudaMemcpyDeviceToHost);
 			if (debug->bubbles)cudaMemcpy(	solution[save_count].pos, bubbles_htod.pos, sizeof(double2)*numBubbles, cudaMemcpyDeviceToHost);
 			if (debug->bubbles)cudaMemcpy(	solution[save_count].R_t, bubbles_htod.R_t, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
-			if (debug->bubbles)cudaMemcpy(	solution[save_count].PL_p, bubbles_htod.PL_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
+			if (debug->bubbles)cudaMemcpy(	solution[save_count].PG_p, bubbles_htod.PG_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
 		#ifdef _DEBUG_
 			if(system("clear")){exit(EXIT_FAILURE);}
 		#endif
