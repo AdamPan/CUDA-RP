@@ -1009,7 +1009,7 @@ int update_bubble_indices(){
 	return 0;
 }
 
-int calculate_void_fraction(mixture_t mixture_htod, int f_g_width, int f_g_pitch){
+int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, int f_g_width, int f_g_pitch){
 	dim3 dimVFCBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimVFCGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE);
 
@@ -1024,7 +1024,7 @@ int calculate_void_fraction(mixture_t mixture_htod, int f_g_width, int f_g_pitch
 	cudaThreadSynchronize();
 	checkCUDAError("Void Fraction Lookup");
 
-	if (plane_wave_c.cylindrical){
+	if (plane_wave->cylindrical){
 		VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock >>> (f_g_width);
 		cudaThreadSynchronize();
 		checkCUDAError("Void Fraction Cylindrical Conditions");
@@ -1165,7 +1165,7 @@ int interpolate_bubble_pressure(int p0_width){
 	return 0;
 }
 
-int calculate_temperature(int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int rho_m_width, int C_pm_width, int Work_width){
+int calculate_temperature(bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int rho_m_width, int C_pm_width, int Work_width){
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
@@ -1189,8 +1189,9 @@ int calculate_temperature(int k_m_width, int T_width, int f_g_width, int Ex_widt
 //	cudaThreadSynchronize();
 	WorkClearKernel <<< dim2mGrid, dim2mBlock, 0, streams[1] >>> (Work_width);
 //	cudaThreadSynchronize();
-	BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, streams[1] >>> (Work_width);
-
+	if(bub_params->enabled){
+		BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, streams[1] >>> (Work_width);
+	}
 	cudaThreadSynchronize();
 	checkCUDAError("Temperature Setup");
 

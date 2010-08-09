@@ -105,7 +105,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	}
 
 	if(bub_params->enabled){
-		if(calculate_void_fraction(mixture_htod, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
+		if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
 		if(synchronize_void_fraction(mixture_htod, f_g_pitch)){exit(EXIT_FAILURE);}
 	}
 
@@ -165,7 +165,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 				max_iter = solve_bubble_radii(bubbles_htod);
 
 				// Calculate Void Fraction
-				if(calculate_void_fraction(mixture_htod, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
+				if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
 
 				// Calculate Pressure
 				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
@@ -178,15 +178,12 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 			}
 		}
 
-		if (bub_params->enabled){
 		// Calculate mixture temperature
-		if(calculate_temperature(k_m_width, T_width, f_g_width, Ex_width, Ey_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
+		if(calculate_temperature(bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
 		// Calculate mixture properties
 		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width)){exit(EXIT_FAILURE);}
-		}
-		// TODO: write in saving mechanism so that it's easier on the CPU
 
-
+		// Save data at intervals
 		if((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0)){
 			solution.resize(save_count+1);
 			if (debug->p0) solution[save_count].p0 = (double*)calloc(m1Vol, sizeof(double));
