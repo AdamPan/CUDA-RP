@@ -1,5 +1,6 @@
 #include "bubble_CUDA.h"
 #include "complex.cuh"
+#include "double_vector_math.cuh"
 
 // Array sizes
 extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
@@ -71,14 +72,6 @@ static __inline__ __device__ double atomicAdd(double * addr, double val){
     return old;	// We return the old value, to conform with other atomicAdd() implementations
 }
 
-static __inline__ __host__ __device__ double2 operator* (const double2 a, const double b){
-	return make_double2(a.x * b, a.y * b);
-}
-
-static __inline__ __host__ __device__ double2 operator+ (const double2 a, const double2 b){
-	return make_double2(a.x + b.x, a.y + b.y);
-}
-
 // intrinsic epsilon for double
 static __inline__ __host__ __device__ double epsilon(double val){
 	return 2.22044604925031308e-016;
@@ -144,35 +137,35 @@ __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, 
 	return omega_N;
 }
 
-// returns alpha_N
+// Calculates and returns alpha_N
 static __forceinline__ __host__ __device__ doublecomplex Alpha(const double R, const double omega_N, const double coeff_alpha){
 	return sqrt(coeff_alpha * (omega_N) / (R)) * make_doublecomplex(1.0, 1.0);
 }
 
-// returns Upsilon_N
+// Calculates and returns Upsilon_N
 static __forceinline__ __host__ __device__ doublecomplex Upsilon(const doublecomplex a, const double gam){
-	if (abs(a) > 1.0e-2){
+	if (abs(a) > 1.0e-2){	// If alpha is large, use the standard calculation
 		return (3.0 * gam)/(1.0 + (3.0 * ((gam - 1.0) * ((a * coth(a) - 1.0)/(a*a)))));
 	}
-	else{
+	else{			// If alpha is small, taylor expansion approximation
 		return (3.0 * gam)/(1.0 + (3.0 * ((gam - 1.0) * ((1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0)))))));
 	}
 }
 
-// returns Lp_N
+// Calculates and returns Lp_N
 static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecomplex a, const double R){
-	doublecomplex ctmp;
-	if(abs(a) > 1.0e-1){
-		ctmp = a * coth(a) - 1.0;
+	doublecomplex ctmp;	// Temporary variable for complex calculation
+	if(abs(a) > 1.0e-1){	// If alpha is large, use the standard calculation
+		ctmp = coth(a)*a - 1.0;
 		ctmp = (a*a - ctmp * 3.0)/(a*a*ctmp);
 	}
-	else{
+	else{			// If alpha is small, taylor expansion approximation
 		ctmp = 1.0/5.0 + a*a*(-1.0/175.0+a*a*(2.0/7875.0 - a*a*37.0/3031875.0));
 	}
 	return R * ctmp;
 }
 
-// returns PG
+// Calculates and returns PG
 __forceinline__ __host__ __device__ double solvePG(const double PGn, const double Rp, const double Rn, const double omega_N, const double dt, const doublecomplex Lp_N, const bub_params_t bub_params){
 	double 	Lp_NR = Lp_N.real / (abs(Lp_N) * abs(Lp_N)),
 		Lp_NI = Lp_N.imag / (abs(Lp_N) * abs(Lp_N)),
@@ -423,10 +416,10 @@ __global__ void VoidFractionReverseLookupKernel(int fg_width){
 
 		// Distribute void fraction using smooth delta function
 		for (int i = ibn.x + bub_params_c.mbs; i <= ibn.x + bub_params_c.mbe; i++){
-			Delta_x = smooth_delta_x(i, pos.x);
+			Delta_x = smooth_delta_x(i, pos.x);	// Calculate smooth delta function in x
 			for (int j = ibn.y + bub_params_c.mbs; j <= ibn.y + bub_params_c.mbe; j++){
-				Delta_y = smooth_delta_y(j, pos.y);
-				if((i >= array_c.ista2m) && (i <= array_c.iend2m) && (j >= array_c.jsta2m) && (j <= array_c.jend2m)){
+				Delta_y = smooth_delta_y(j, pos.y);	// Calculate smooth delta function in y
+				if((i >= array_c.ista2m) && (i <= array_c.iend2m) && (j >= array_c.jsta2m) && (j <= array_c.jend2m)){	// Check against global boundaries
 					atomicAdd(&mixture_c.f_g[(j - array_c.jsta2m) * fg_width + (i - array_c.ista2m)], fg_temp * Delta_x * Delta_y);	// Use atomics to prevent race conditions
 				}
 			}
@@ -447,10 +440,6 @@ __global__ void VFPredictionKernel(int fg_width){
 }
 
 __global__ void VelocityKernel(int vx_width, int vy_width, int rhom_width, int p0_width, int csl_width){
-//	__shared__ double p0[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
-//	__shared__ double rhom[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
-//	__shared__ double csl[TILE_BLOCK_HEIGHT + 1][TILE_BLOCK_WIDTH + 1];
-	
 	const int tx = threadIdx.x,	ty = threadIdx.y;
 
 	const int i = blockDim.x * blockIdx.x + tx;
@@ -464,47 +453,27 @@ __global__ void VelocityKernel(int vx_width, int vy_width, int rhom_width, int p
 	const int csl_i = csl_width * (jn - array_c.jsta1m) + (in - array_c.ista1m);
 	const int vx_i =  vx_width * (jn - array_c.jsta2m) + (i);
 	const int vy_i =  vy_width * (j) + (in - array_c.ista2m);
-	
-	const bool ok1 = (in >= array_c.istan) && (in <= array_c.iendn) && (jn >= array_c.jstam) && (jn <= array_c.jendm);
-	const bool ok2 = (in >= array_c.istam) && (in <= array_c.iendm) && (jn >= array_c.jstan) && (jn <= array_c.jendn);
-	
-	const double s0 = 0.5 * mix_params_c.dt;
+
+	// Two sets of boundaries
+	const bool ok1 = (in >= array_c.istan) && (in <= array_c.iendn) && (jn >= array_c.jstam) && (jn <= array_c.jendm);	// V_x
+	const bool ok2 = (in >= array_c.istam) && (in <= array_c.iendm) && (jn >= array_c.jstan) && (jn <= array_c.jendn);	// V_y
+
 	double s1, s2, s3;
 
-//	if (ok1 || ok2){
-//		p0[ty][tx] = mixture_c.p0[p0_i];
-//		rhom[ty][tx] = mixture_c.rho_m[rhom_i];
-//		csl[ty][tx] = mixture_c.c_sl[csl_i];
-//	}
-//	if (ok1 && ((tx == blockDim.x - 1) || (in == array_c.iendn))){
-//		p0[ty][tx + 1] = mixture_c.p0[p0_i + 1];
-//		rhom[ty][tx + 1] = mixture_c.rho_m[rhom_i + 1];
-//		csl[ty][tx + 1] = mixture_c.c_sl[csl_i + 1];
-//	}
-//	if (ok2 && ((ty == blockDim.y - 1)||(jn == array_c.jendn))){
-//		rhom[ty + 1][tx] = mixture_c.rho_m[rhom_i + rhom_width];
-//		p0[ty + 1][tx] = mixture_c.p0[p0_i + p0_width];
-//		csl[ty + 1][tx] = mixture_c.c_sl[csl_i + csl_width];
-//	}
-//	__syncthreads();
 	if (ok1){
 		s1 = (mixture_c.rho_m[rhom_i] + mixture_c.rho_m[rhom_i + 1]) * 0.5;
 		s2 = (-mixture_c.p0[p0_i] + mixture_c.p0[p0_i + 1]) * grid_c.rdx;
 		s3 = (mixture_c.c_sl[csl_i] + mixture_c.c_sl[csl_i + 1]) * 0.5;
-//		s1 = (rhom[ty][tx] + rhom[ty][tx + 1]) * 0.5;
-//		s2 = (-p0[ty][tx] + p0[ty][tx + 1]) * grid_c.rdx;
-//		s3 = (csl[ty][tx] + csl[ty][tx + 1]) * 0.5;
-		s3 = s3 * s0 * sigma_c.nx[i];
+
+		s3 = s3 * 0.5 * mix_params_c.dt * sigma_c.nx[i];
 		mixture_c.vx[vx_i] = (mixture_c.vx[vx_i] * (1.0 - s3) - mix_params_c.dt / s1 * s2)/(1.0 + s3);
 	}
 	if (ok2){
 		s1 = (mixture_c.rho_m[rhom_i] + mixture_c.rho_m[rhom_i + rhom_width]) * 0.5;
 		s2 = (-mixture_c.p0[p0_i] + mixture_c.p0[p0_i + p0_width]) * grid_c.rdx;
 		s3 = (mixture_c.c_sl[csl_i] + mixture_c.c_sl[csl_i + csl_width]) * 0.5;
-//		s1 = ( rhom[ty][tx] + rhom[ty + 1][tx] ) * 0.5;
-//		s2 = (-p0[ty][tx] + p0[ty + 1][tx] ) * grid_c.rdx;
-//		s3 = ( csl[ty][tx] + csl[ty + 1][tx] ) * 0.5;
-		s3 = s3 * s0 * sigma_c.ny[j];
+
+		s3 = s3 * 0.5 * mix_params_c.dt * sigma_c.ny[j];
 		mixture_c.vy[vy_i] = (mixture_c.vy[vy_i] * (1.0 - s3) - mix_params_c.dt / s1 * s2)/(1.0 + s3);
 	}
 }
@@ -656,69 +625,36 @@ __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, 
 	
 	const bool ok = ((i1m >= array_c.istam) && (i1m <= array_c.iendm) && (j1m >= array_c.jstam) && (j1m <= array_c.jendm));
 
-	double s1, s2, s3, s4, s5, s6, s7;
-//	double f_g, f_gn;
-//	double rho_l, c_sl;
+//	double s1, s2, s3, s4, s5, s6, s5;
 
+	double2 s1, s2;
+	double s3, s4, s5;
 	double2 p;
-//	double2 pn;
-
-	// Keep in mind now that when we say xu[tx + 1], we really mean xu[tx], and so on
-
-//	if (ok){
-//		f_g = mixture_c.f_g[fg_i];
-//		f_gn = mixture_c.f_gn[fg_i];
-
-//		rho_l = mixture_c.rho_l[rhol_i];
-//		c_sl = mixture_c.c_sl[csl_i];
-
-//		pn = mixture_c.pn[p_i];
-
-//		vx[ty][tx + 1] = mixture_c.vx[vx_i];
-//		vy[ty + 1][tx] = mixture_c.vy[vy_i];
-
-//		if ((tx == 0) || (i1m == array_c.istam)){
-//			vx[ty][tx] = mixture_c.vx[vx_i - 1];
-//		}
-//		if ((ty == 0) || (j1m == array_c.jstam)){
-//			vy[ty][tx] = mixture_c.vy[vy_i - vy_width];
-//		}
-//		if (ty == 0 || (j1m == array_c.jstam)){
-//			xu[tx + 1] = gridgen_c.xu[xu_i];
-//			if ((tx == 0) || (i1m == array_c.istam)){
-//				xu[tx] = gridgen_c.xu[xu_i - 1];
-//			}
-//		}
-//	}
-//	__syncthreads();
 
 	if (ok){
+		// Determine the velocity gradient in x (depends on whether the cylindrical condition is active or not)
 		if (plane_wave_c.cylindrical){
-//			s1 = (-xu[tx]*vx[ty][tx] + xu[tx+1]*vx[ty][tx+1]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
-			s1 = (-gridgen_c.xu[xu_i - 1] * mixture_c.vx[vx_i - 1] + gridgen_c.xu[xu_i] * mixture_c.vx[vx_i]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
+			s1.x = (-gridgen_c.xu[xu_i - 1] * mixture_c.vx[vx_i - 1] + gridgen_c.xu[xu_i] * mixture_c.vx[vx_i]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
 		}
 		else{
-//			s1 = (-vx[ty][tx] + vx[ty][tx+1])*grid_c.rdx;
-			s1 = (-mixture_c.vx[vx_i - 1] + mixture_c.vx[vx_i]) * grid_c.rdx;
+			s1.x = (-mixture_c.vx[vx_i - 1] + mixture_c.vx[vx_i]) * grid_c.rdx;
 		}
-//		s2 = (-vy[ty][tx] + vy[ty+1][tx])*grid_c.rdy;
-//		s7 = -(f_g - f_gn)/ mix_params_c.dt / (1.0-0.5*(f_g + f_gn));
-//		s3 = mix_params_c.dt * rho_l * c_sl * c_sl;
-//		s4 = 0.5 * mix_params_c.dt * c_sl;
-
-		s2 = (-mixture_c.vy[vy_i - vy_width] + mixture_c.vy[vy_i]) * grid_c.rdy;
-		s7 = -(mixture_c.f_g[fg_i] - mixture_c.f_gn[fg_i])/ mix_params_c.dt / (1.0-0.5*(mixture_c.f_g[fg_i] + mixture_c.f_gn[fg_i]));
+		// Determine the velocity gradient in y
+		s1.y = (-mixture_c.vy[vy_i - vy_width] + mixture_c.vy[vy_i]) * grid_c.rdy;
+		// Calculate coefficients
 		s3 = mix_params_c.dt * mixture_c.rho_l[rhol_i] * mixture_c.c_sl[csl_i] * mixture_c.c_sl[csl_i];
 		s4 = 0.5 * mix_params_c.dt * mixture_c.c_sl[csl_i];
-		s5 = s4 * sigma_c.mx[i];
-		s6 = s4 * sigma_c.my[j];
-//		p = make_double2((pn.x * (1.0 - s5) - s3 * (s1 + 0.5 * s7)) / (1.0 + s5), (pn.y * (1.0 - s6) - s3 * (s2 + 0.5 * s7)) / (1.0 + s6));
-		p = make_double2((mixture_c.pn[p_i].x * (1.0 - s5) - s3 * (s1 + 0.5 * s7)) / (1.0 + s5), (mixture_c.pn[p_i].y * (1.0 - s6) - s3 * (s2 + 0.5 * s7)) / (1.0 + s6));
+		s5 = -(mixture_c.f_g[fg_i] - mixture_c.f_gn[fg_i])/ mix_params_c.dt / (1.0-0.5*(mixture_c.f_g[fg_i] + mixture_c.f_gn[fg_i]));
+		// Calculate PML components
+		s2 = make_double2(s4 * sigma_c.mx[i], s4 * sigma_c.my[j]);
 
-		mixture_c.p[p_i] = p;
+		// Vectorized version of P calculation
+		mixture_c.p[p_i] = p = (mixture_c.pn[p_i] * (1.0 - s2) - s3 * (s1 + 0.5 * s5) / (1.0 + s2));
 
-		mixture_c.Work[Work_i] = abs(mixture_c.p0[p_i] - (p.x + p.y));
-		mixture_c.p0[p_i] = p.x + p.y;
+		// Take the difference of the new pressure and the old pressure, store it into the temporary array
+		mixture_c.Work[Work_i] = abs(mixture_c.p0[p_i] - sum(p));
+		// Store the new pressure
+		mixture_c.p0[p_i] = sum(p);
 	}
 
 }
