@@ -182,7 +182,7 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 		}
 		for (int k = 0; k < solution.size(); k++){
 			out.str("");
-			out << out_dir << "bubble_PL_" ;
+			out << out_dir << "bubble_PG_" ;
 				out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
