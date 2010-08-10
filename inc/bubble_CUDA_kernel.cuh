@@ -632,9 +632,9 @@ __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, 
 		mixture_c.p[p_i] = p = (mixture_c.pn[p_i] * (1.0 - s2) - s3 * (s1 + 0.5 * s5) / (1.0 + s2));
 
 		// Take the difference of the new pressure and the old pressure, store it into the temporary array
-		mixture_c.Work[Work_i] = abs(mixture_c.p0[p_i] - sum(p));
+		mixture_c.Work[Work_i] = abs(mixture_c.p0[p_i] - (p.x + p.y));
 		// Store the new pressure
-		mixture_c.p0[p_i] = sum(p);
+		mixture_c.p0[p_i] = p.x + p.y;
 	}
 
 }
