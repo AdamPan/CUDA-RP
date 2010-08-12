@@ -59,17 +59,17 @@ static __host__ void sort(bubble_t, thrust::device_vector<int>);
 
 // Implements atomic addition for doubles
 static __inline__ __device__ double atomicAdd(double * addr, double val){
-    double old = *addr;
-    double assumed;
+	double old = *addr;
+	double assumed;
 
-    do {
-        assumed = old;
-        old = __longlong_as_double( atomicCAS((unsigned long long int*)addr,
-                                        __double_as_longlong(assumed),
-                                        __double_as_longlong(val+assumed)));	// Pull down down the variable, and compare and swap when we have the chance. Note that atomicCAS returns the new value at addr.
-    } while( assumed!=old );
+	do {
+	assumed = old;
+	old = __longlong_as_double(	atomicCAS((unsigned long long int*)addr,
+					__double_as_longlong(assumed),
+					__double_as_longlong(val+assumed)));	// Pull down down the variable, and compare and swap when we have the chance. Note that atomicCAS returns the new value at addr.
+	} while( assumed!=old );
 
-    return old;	// We return the old value, to conform with other atomicAdd() implementations
+	return old;	// We return the old value, to conform with other atomicAdd() implementations
 }
 
 // intrinsic epsilon for double
@@ -81,30 +81,30 @@ static __inline__ __host__ __device__ double epsilon(double val){
 
 // Rayleigh Plesset solver
 __forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double PG, const double PL, double * dt, double * remain, const bub_params_t bub_params){
-	double 	Rm, d2R, 	// Temporary radius variables
+	double 	Rm, Rnd2R, 	// Temporary radius variables
 		dtm, dtp; 	// Temporary time variables
 	// Step the radius forwards
 	Rm = *Rn;
 	*Rn = *Rp;
 	// Calculate the effect of pressure on the 
-	d2R = ((PG - PL - 2.0*bub_params.sig/(*Rn) - 4.0*bub_params.mu/(*Rn)*(*d1R) )/bub_params.rho - 1.5*(*d1R)*(*d1R)) / (*Rn);
+	Rnd2R = (PG - PL - 2.0*bub_params.sig/(*Rn) - 4.0*bub_params.mu/(*Rn)*(*d1R) )/bub_params.rho - 1.5*(*d1R)*(*d1R);
 	// Set dt based on either the first derivative of radius, or the second derivative
 	dtm = *dt;
 	dtp = min(1.01 * (*dt), bub_params.dt0);
 	if (abs(*d1R) > epsilon(abs(*d1R))){
 		dtp = min(dtp, 0.01 * (*Rn)/abs(*d1R));
 	}
-	if (abs(d2R) > epsilon(abs(d2R))){
-		dtp = min(dtp, sqrt(0.01 * (*Rn)/abs(d2R)));
+	if (abs(Rnd2R) > epsilon(abs(Rnd2R))){
+		dtp = min(dtp, 0.1 * (*Rn)/sqrt(abs(Rnd2R)));
 	}
 	// Step radius forward
-	*Rt = *Rp = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp * 0.5 * (dtp + dtm)) * d2R;
-	*d1R = (dtm*dtm * (*Rp) + (-dtm*dtm + dtp*dtp) * (*Rn) - dtp*dtp * Rm)/(dtm * dtp * (dtm + dtp)) + dtp * d2R;
+	*Rt = *Rp = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp / (*Rn)) * ( 0.5 * (dtp + dtm) * Rnd2R);
+	*d1R = (dtm*dtm * (*Rp) + (-dtm*dtm + dtp*dtp) * (*Rn) - dtp*dtp * Rm)/(dtm * dtp * (dtm + dtp)) + (dtp/(*Rn)) * Rnd2R;
 	*dt = dtp;
 	// If we are within one timestep of synchronization, move recalculate Rt to match
 	if (dtp >= *remain){
 		dtp = *remain;
-		*Rt = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp * 0.5 * (dtp+dtm)) * d2R;
+		*Rt = (1.0 + dtp/dtm) * (*Rn) - dtp/dtm * Rm + (dtp /(*Rn)) * ( 0.5 * (dtp + dtm) * Rnd2R);
 	}
 	// Decrement the timer
 	*remain -= dtp;
@@ -114,52 +114,52 @@ __forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, doubl
 // Implicit solver for omega_N and alpha_N
 __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, const double PG, const double R, const bub_params_t bub_params){
 	// Calculate coefficients
-	double coef1 = (bub_params.PG0 * bub_params.R03)/(PG * R * R * R);
-	double coef2 = PG / (bub_params.rho * R * R);
-	double coef3 = 4.0 / (bub_params.rho * bub_params.rho * R * R * R * R);
-	double value1 = -2.0 * bub_params.sig/(bub_params.rho * R * R * R);
+	double	Rx = R / bub_params.R0,
+		coef1 = bub_params.PG0 /(PG * Rx * Rx * Rx),
+		coef2 = PG * bub_params.rho,
+		coef3 = 4.0 / (R * R),
+		value1 = -2.0 * bub_params.sig * bub_params.rho / R;
+		
 	// Zeroeth step
 	doublecomplex Upsilon_N = make_doublecomplex(3.0*bub_params.gam, 0.0) * coef1;
 	double mu_eff = bub_params.mu;
 	double eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
-	double omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta)));
-	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
-
-	// Steps 1 - 3
+	double omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta))) / ( bub_params.rho * R );
 	#pragma unroll 3
 	for (int i = 0; i < 3; i++){
+		*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 		Upsilon_N = Upsilon(*alpha_N, bub_params.gam) * coef1;
 		mu_eff = bub_params.mu + Upsilon_N.imag * PG / (4.0 * (omega_N));
 		eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
-		omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta)));
-		*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
+		omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta))) / ( bub_params.rho * R );
 	}
+	*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 	return omega_N;
 }
 
 // Calculates and returns alpha_N
 static __forceinline__ __host__ __device__ doublecomplex Alpha(const double R, const double omega_N, const double coeff_alpha){
-	return sqrt(coeff_alpha * (omega_N) / (R)) * make_doublecomplex(1.0, 1.0);
+	return make_doublecomplex(1.0, 1.0) * sqrt(coeff_alpha / R * omega_N);
 }
 
 // Calculates and returns Upsilon_N
 static __forceinline__ __host__ __device__ doublecomplex Upsilon(const doublecomplex a, const double gam){
-	if (abs(a) > 1.0e-2){	// If alpha is large, use the standard calculation
+	if (abs(a) > 1.0e-1){
 		return (3.0 * gam)/(1.0 + (3.0 * ((gam - 1.0) * ((a * coth(a) - 1.0)/(a*a)))));
 	}
-	else{			// If alpha is small, taylor expansion approximation
+	else{
 		return (3.0 * gam)/(1.0 + (3.0 * ((gam - 1.0) * ((1.0/3.0 + a*a * (-1.0/45.0 + a*a * (2.0/945.0 - a*a / 4725.0)))))));
 	}
 }
 
 // Calculates and returns Lp_N
 static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecomplex a, const double R){
-	doublecomplex ctmp;	// Temporary variable for complex calculation
-	if(abs(a) > 1.0e-1){	// If alpha is large, use the standard calculation
-		ctmp = coth(a)*a - 1.0;
-		ctmp = (a*a - ctmp * 3.0)/(a*a*ctmp);
+	doublecomplex ctmp;
+	if(abs(a) > 1.0e-1){
+		ctmp = a * coth(a) - 1.0;
+		ctmp = (a*a - 3.0 * ctmp)/(a*a*ctmp);
 	}
-	else{			// If alpha is small, taylor expansion approximation
+	else{
 		ctmp = 1.0/5.0 + a*a*(-1.0/175.0+a*a*(2.0/7875.0 - a*a*37.0/3031875.0));
 	}
 	return R * ctmp;
@@ -167,14 +167,18 @@ static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecom
 
 // Calculates and returns PG
 __forceinline__ __host__ __device__ double solvePG(const double PGn, const double Rp, const double Rn, const double omega_N, const double dt, const doublecomplex Lp_N, const bub_params_t bub_params){
-	double 	Lp_NR = Lp_N.real / (abs(Lp_N) * abs(Lp_N)),
-		Lp_NI = Lp_N.imag / (abs(Lp_N) * abs(Lp_N)),
-		R = 0.5 * (Rp + Rn),
-		c0 = dt*3.0*(bub_params.gam-1.0) * 2.0/(Rp + Rn) * bub_params.K0 * bub_params.T0/(bub_params.PG0 * bub_params.R03),
-		c3 = 1.5 * bub_params.gam/R*(Rp-Rn) + c0 * Lp_NR * 0.5 * R*R*R,
-		c1 = 1.0 + c3 - c0*Lp_NI/(omega_N * dt) * Rp*Rp*Rp,
-		c2 = 1.0 - c3 - c0*Lp_NI/(omega_N * dt) * Rn*Rn*Rn;
-	return (c2*PGn + c0*Lp_NR * bub_params.PG0 * bub_params.R03)/c1;
+	double	R = 0.5 * (Rp + Rn),
+		Rx  = R /bub_params.R0,
+		Rpx = Rp/bub_params.R0,
+		Rnx = Rn/bub_params.R0;
+
+	double 	Lp_NR = Lp_N.real / (Lp_N.real*Lp_N.real + Lp_N.imag*Lp_N.imag),
+		Lp_NI = Lp_N.imag / (Lp_N.real*Lp_N.real + Lp_N.imag*Lp_N.imag),
+		c0 = dt*3.0*(bub_params.gam-1.0)*bub_params.K0 * bub_params.T0 / ( R * bub_params.PG0 ),
+		c3 = 1.5 * bub_params.gam * ( Rp - Rn ) / R + c0 * Lp_NR * 0.5 * Rx*Rx*Rx,
+		c1 = 1.0 + c3 - c0 * Lp_NI / (omega_N * dt) * Rpx*Rpx*Rpx,
+		c2 = 1.0 - c3 - c0 * Lp_NI / (omega_N * dt) * Rnx*Rnx*Rnx;
+	return ( c2 * PGn + c0 * Lp_NR * bub_params.PG0 ) / c1;
 }
 
 /* Bubble Kernels */
@@ -299,11 +303,10 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 	double Rp, Rn, d1Rp, dt_L, remain, PC0, PC1, PC2, time;
 	double PGp;
 
-	double temp[3];
-	
-	int ok = 1;
+	double s0, s1, counter;
 
 	if (index < num_bubbles){
+
 		// Cache bubble parameters
 		Rp 	= bubbles_c.R_pn[index];
 		Rn 	= bubbles_c.R_nn[index];
@@ -321,7 +324,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 		// Reset accumulated variables
 		SumHeat = 0.0;
 		SumVis = 0.0;
-		temp[2] = 0;	// Loop counter
+		counter = 0;	// Loop counter
 
 		while (remain > 0.0){
 			PGn 	= 	PGp;	// Step the gas pressure forwards
@@ -336,26 +339,20 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
 
-			if (ok && (isnan(PGp) || is_nan(Lp_N) || is_nan(alpha_N) || isnan(PL) || isnan(omega_N) || isnan(d1Rp))){
-				//printf("[%i, %i]dt_L = %4.2E\tPGp = %4.2E\tLp_N = %4.2E + %4.2Ei\talpha_N = %4.2E + %4.2Ei\tomega_N = %4.2E\tRn = %4.2E\tRp = %4.2E\td1Rp = %4.2E\tPGn = %4.2E\n", blockIdx.x, threadIdx.x, dt_L, PGp, Lp_N.real, Lp_N.imag, alpha_N.real, alpha_N.imag, omega_N, Rn, Rp, d1Rp, PGn);
-				ok--;
-				return;
-			}
-
-//			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
+			//PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
 
 			// Calculate the the partial derivative dT/dr at the surface of the bubble
-			temp[0] = 0.5*(Rp+Rn);
-			temp[1] = 1 / (abs(Lp_N) * abs(Lp_N)) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
-			dTdr_R 	= 	Lp_N.real * temp[1] * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp+PGn)*temp[0]*temp[0]*temp[0]) +
-					Lp_N.imag * temp[1] * (PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
+			s0 = 0.5*(Rp+Rn);
+			s1 = 1 / (abs(Lp_N) * abs(Lp_N)) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
+			dTdr_R 	= 	Lp_N.real * s1 * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp+PGn)*s0*s0*s0) +
+					Lp_N.imag * s1 * (PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
 
 			// Accumulate bubble heat
 			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params_c.K0 * dTdr_R * dt_L;
 			// Accumulate bubble viscous dissipation
 			SumVis 	+= 4.0 * Pi * Rp * Rp * 4.0 * bub_params_c.mu * d1Rp / Rp * d1Rp * dt_L;
 
-			temp[2]++;
+			counter++;
 		}
 
 		// Assign values back to the global memory
@@ -367,7 +364,7 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 		bubbles_c.dt[index]	= dt_L;
 		bubbles_c.re[index]	= remain;
 		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain + bubbles_c.re_n[index]);
-		max_iter[index]		= temp[2];
+		max_iter[index]		= counter;
 		//}
 	}
 }
@@ -1234,7 +1231,7 @@ int solve_bubble_radii(bubble_t bubbles_htod){
 	cudaThreadSynchronize();
 	checkCUDAError("Bubble Radius");
 
-	//sort(bubbles_htod, max_iter_d);
+//	sort(bubbles_htod, max_iter_d);
 
 	return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
 }
@@ -1471,7 +1468,7 @@ void sort(bubble_t bubbles_htod, thrust::device_vector<int> max_iter_d){
 	thrust::device_vector<double> temp_d;
 	thrust::device_vector<double2> temp_d2;
 
-	thrust::host_vector<double> temp_sort;
+//	thrust::host_vector<double> temp_sort;
 
 	thrust::host_vector<int> remap_h(numBubbles);
 	thrust::device_vector<int> remap(numBubbles);

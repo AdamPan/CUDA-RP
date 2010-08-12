@@ -21,7 +21,7 @@ int main (int argc, char **argv)
 	return (int)result;
 }
 
-int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim_params, debug_t *debug){
+int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim_params, plane_wave_t *plane_wave, debug_t *debug){
 	ofstream out_file;
 	stringstream out;
 	string out_dir = "./results/";
@@ -42,13 +42,13 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out_file.open((out.str()).c_str());
 
 			for (int j = 0; j < j2m; j++){
-				for (int i = 0; i < i2m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].f_g[i2m * j + i] << endl;
+				for (int i = (plane_wave->cylindrical ? -i2m : 0); i < i2m; i++){
+					out_file << i << "\t" << j << "\t" << solution[k].f_g[i2m * j + abs(i)] << endl;
 				}
 				out_file << endl;
 			}
 			out_file.close();
-			cout << "\r" << "Saving FG : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving FG : " << (int) 100 * (k + 1) / solution.size() << "% done";
 			cout.flush();
 		}
 		cout << endl;
@@ -57,13 +57,13 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 	if (debug->p0){
 		for (int k = 0; k < solution.size(); k++){
 			out.str("");
-			out << out_dir << "p0_step_" ;
+			out << out_dir << "p0_step_";
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for (int j = 0; j < j1m; j++){
-				for (int i = 0; i < i1m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].p0[i1m * j + i] << endl;
+				for (int i = (plane_wave->cylindrical ? -i1m : 0); i < i1m; i++){
+					out_file << i << "\t" << j << "\t" << solution[k].p0[i1m * j + abs(i)] << endl;
 				}
 				out_file << endl;
 			}
@@ -77,35 +77,35 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 	if (debug->pxy){
 		for (int k = 0; k < solution.size(); k++){
 			out.str("");
-			out << out_dir << "px_step_" ;
+			out << out_dir << "px_step_";
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for(int j = 0; j < j1m; j++){
-				for (int i = 0; i < i1m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].p[i1m * j + i].x << endl;
+				for (int i = (plane_wave->cylindrical ? -i1m : 0); i < i1m; i++){
+					out_file << i << "\t" << j << "\t" << solution[k].p[i1m * j + abs(i)].x << endl;
 				}
 				out_file << endl;
 			}
 			out_file.close();
-			cout << "\r" << "Saving PX : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving PX : " << (int) 100 * (k + 1) / solution.size() << "% done";
 			cout.flush();
 		}
 		cout << endl;
 		for (int k = 0; k < solution.size(); k++){
 			out.str("");
-			out << out_dir << "py_step_" ;
+			out << out_dir << "py_step_";
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for(int j = 0; j < j1m; j++){
-				for (int i = 0; i < i1m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].p[i1m * j + i].y << endl;
+				for (int i = (plane_wave->cylindrical ? -i1m : 0); i < i1m; i++){
+					out_file << i << "\t" << j << "\t" << solution[k].p[i1m * j + abs(i)].y << endl;
 				}
 				out_file << endl;
 			}
 			out_file.close();
-			cout << "\r" << "Saving PY : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving PY : " << (int) 100 * (k + 1) / solution.size() << "% done";
 			cout.flush();
 		}
 		cout << endl;
@@ -114,18 +114,18 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 	if (debug->T){
 		for (int k = 0; k < solution.size(); k++){
 			out.str("");
-			out << out_dir << "T_step_" ;
+			out << out_dir << "T_step_";
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for(int j = 0; j < j2m; j++){
-				for (int i = 0; i < i2m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].T[i2m * j + i] << endl;
+				for (int i = (plane_wave->cylindrical ? -i2m : 0); i < i2m; i++){
+					out_file << i << "\t" << j << "\t" << solution[k].T[i2m * j + abs(i)] << endl;
 				}
 				out_file << endl;
 			}
 			out_file.close();
-			cout << "\r" << "Saving T : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving T : " << (int) 100 * (k + 1) / solution.size() << "% done";
 			cout.flush();
 		}
 		cout << endl;
@@ -134,35 +134,35 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 	if (debug->vxy){
 		for (int k = 0; k < solution.size(); k ++){
 			out.str("");
-			out << out_dir << "vx_step_" ;
+			out << out_dir << "vx_step_";
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for (int j = 0; j < j2m; j++){
-				for (int i = 0; i < i2n; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].vx[i2n * j + i] << endl;
+				for (int i = (plane_wave->cylindrical ? -i2n : 0); i < i2n; i++){
+					out_file << i << "\t" << j << "\t" << solution[k].vx[i2n * j + abs(i)] << endl;
 				}
 				out_file << endl;
 			}
 			out_file.close();
-			cout << "\r" << "Saving VX : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving VX : " << (int) 100 * (k + 1) / solution.size() << "% done";
 			cout.flush();
 		}
 		cout << endl;
 		for (int k = 0; k < solution.size(); k ++){
 			out.str("");
-			out << out_dir << "vy_step_" ;
+			out << out_dir << "vy_step_";
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for (int j = 0; j < j2n; j++){
-				for (int i = 0; i < i2m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].vy[i2m * j + i] << endl;
+				for (int i = (plane_wave->cylindrical ? -i2m : 0); i < i2m; i++){
+					out_file << i << "\t" << j << "\t" << solution[k].vy[i2m * j + abs(i)] << endl;
 				}
 				out_file << endl;
 			}
 			out_file.close();
-			cout << "\r" << "Saving VY : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving VY : " << (int) 100 * (k + 1) / solution.size() << "% done";
 			cout.flush();
 		}
 		cout << endl;
@@ -170,28 +170,42 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 	if (debug->bubbles){
 		for (int k = 0; k < solution.size(); k++){
 			out.str("");
-			out << out_dir << "bubble_radii_" ;
+			out << out_dir << "bubble_radii_";
 				out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for (int i = 0; i < numBubbles; i++){
 				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].R_t[i] <<  endl;
 			}
+//			if (plane_wave->cylindrical){
+//				for (int i = 0; i < numBubbles; i++){
+//					out_file << -solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].R_t[i] <<  endl;
+//				}
+//			}
 			out_file.close();
-			cout << "\r" << "Saving Bubble Radii : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving Bubble Radii : " << (int) 100 * (k + 1) / solution.size() << "% done";
+			cout.flush();
 		}
+		cout << endl;
 		for (int k = 0; k < solution.size(); k++){
 			out.str("");
-			out << out_dir << "bubble_PG_" ;
+			out << out_dir << "bubble_PG_";
 				out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
 			for (int i = 0; i < numBubbles; i++){
 				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PG_p[i] << endl;
 			}
+//			if (plane_wave->cylindrical){
+//				for (int i = 0; i < numBubbles; i++){
+//					out_file << -solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PG_p[i] << endl;
+//				}
+//			}
 			out_file.close();
-			cout << "\r" << "Saving Bubble Liquid Pressure : " << (int) 100 * (k + 1) / solution.size() << "% done" ;
+			cout << "\r" << "Saving Bubble Liquid Pressure : " << (int) 100 * (k + 1) / solution.size() << "% done";
+			cout.flush();
 		}
+		cout << endl;
 	}
 	return 0;
 }
@@ -313,7 +327,7 @@ int runSimulation(int argc, char **argv)
 	runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
 	runtime.close();
 	// Output the solution
-	send_to_file(solution, sim_params, debug);
+	send_to_file(solution, sim_params, plane_wave, debug);
 
 	return 0;
 }
