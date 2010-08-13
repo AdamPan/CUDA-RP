@@ -29,6 +29,7 @@ __device__ __constant__	mix_params_t	mix_params_c;	// Mixture
 __device__ __constant__	bub_params_t	bub_params_c;	// Bubble
 __device__ __constant__	plane_wave_t	plane_wave_c;	// Plane Wave
 __device__ __constant__	double		tstep_c;	// Current time
+__device__ __constant__ double3		delta_coef;	// Coefficients used to save ops in calculating the smooth delta function
 
 
 /* Forward Declarations */
@@ -374,96 +375,6 @@ __global__ __launch_bounds__(BUB_RAD_MAX_THREADS, BUB_RAD_MIN_BLOCKS) void Bubbl
 	}
 	return;
 }
-
-//// Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
-//__global__ __launch_bounds__(BUB_RAD_MAX_THREADS, BUB_RAD_MIN_BLOCKS) void BubbleRadiusKernel(int * max_iter){
-//	__shared__ double Rp[BUB_RAD_MAX_THREADS];
-//	__shared__ double Rn[BUB_RAD_MAX_THREADS];
-//	__shared__ double d1Rp[BUB_RAD_MAX_THREADS];
-//	__shared__ double PGp[BUB_RAD_MAX_THREADS];
-//	__shared__ double dt_L[BUB_RAD_MAX_THREADS];
-//	__shared__ double remain[BUB_RAD_MAX_THREADS];
-//	__shared__ double time[BUB_RAD_MAX_THREADS];
-
-//	const int index = blockDim.x * blockIdx.x + threadIdx.x;
-
-//	double PGn, PL, Rt, omega_N;
-//	double dTdr_R = 0, SumHeat, SumVis;
-//	doublecomplex alpha_N, Lp_N;
-
-////	double PGp, Rp, Rn, d1Rp, dt_L, remain, time;
-//	double PC0, PC1, PC2;
-
-//	double s0, s1;
-//	int counter;
-
-//	if (index < num_bubbles){
-//		// Cache bubble parameters
-//		Rp[threadIdx.x] 	= bubbles_c.R_pn[index];
-//		Rn[threadIdx.x] 	= bubbles_c.R_nn[index];
-//		d1Rp[threadIdx.x] 	= bubbles_c.d1_R_n[index];
-//		PGp[threadIdx.x]	= bubbles_c.PG_n[index];
-//		dt_L[threadIdx.x]	= bubbles_c.dt_n[index];
-//		remain[threadIdx.x]	= bubbles_c.re_n[index] + mix_params_c.dt;
-//		time[threadIdx.x] = -bubbles_c.re_n[index];
-
-//		// Calculate coefficients for predicting liquid pressure around the bubble
-//		PC0 = bubbles_c.PL_n[index] + bub_params_c.PL0;
-//		PC1 = 0.5*(bubbles_c.PL_p[index]-bubbles_c.PL_m[index])/mix_params_c.dt;
-//		PC2 = 0.5*(bubbles_c.PL_p[index]+bubbles_c.PL_m[index]-2.0*bubbles_c.PL_n[index])/(mix_params_c.dt * mix_params_c.dt);
-
-//		// Reset accumulated variables
-//		SumHeat = 0.0;
-//		SumVis = 0.0;
-//		counter = 0;	// Loop counter
-
-//		while (remain[threadIdx.x] > 0.0){
-//			PGn 	= 	PGp[threadIdx.x];	// Step the gas pressure forwards
-//			PL 	= 	PC2 * time[threadIdx.x] * time[threadIdx.x] + PC1 * time[threadIdx.x] + PC0;	// Step the liquid pressure forwards
-
-//			solveRayleighPlesset(&Rt, &Rp[threadIdx.x], &Rn[threadIdx.x], &d1Rp[threadIdx.x], PGn, PL, &dt_L[threadIdx.x], &remain[threadIdx.x], bub_params_c);	// Solve the reduced order rayleigh-plesset eqn
-//			time[threadIdx.x] = time[threadIdx.x] + dt_L[threadIdx.x];	// Increment time step
-
-//			omega_N = solveOmegaN (&alpha_N, PGn, Rn[threadIdx.x], bub_params_c);	// Solve bubble natural frequency
-
-//			Lp_N = solveLp(alpha_N, Rn[threadIdx.x]);	// Solve Lp
-
-//			PGp[threadIdx.x] = solvePG(PGn, Rp[threadIdx.x], Rn[threadIdx.x], omega_N, dt_L[threadIdx.x], Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
-
-////			PGp[threadIdx.x] = bub_params_c.PG0 * bub_params_c.R03 / (Rp[threadIdx.x] * Rp[threadIdx.x] * Rp[threadIdx.x]);
-
-//			// Calculate the the partial derivative dT/dr at the surface of the bubble
-//			s0 = 0.5*(Rp[threadIdx.x]+Rn[threadIdx.x]);
-//			s1 = 1 / (Lp_N.real * Lp_N.real + Lp_N.imag * Lp_N.imag) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
-//			dTdr_R 	= 	Lp_N.real * s1 * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp[threadIdx.x]+PGn)*s0*s0*s0) +
-//					Lp_N.imag * s1 * (PGp[threadIdx.x] * Rp[threadIdx.x] * Rp[threadIdx.x] * Rp[threadIdx.x] - PGn * Rn[threadIdx.x] * Rn[threadIdx.x] * Rn[threadIdx.x]) / (omega_N * dt_L[threadIdx.x]);
-
-//			// Accumulate bubble heat
-//			if (counter < 0){
-//				return;
-//			}
-
-//			SumHeat -= 4.0 * Pi * Rp[threadIdx.x] * Rp[threadIdx.x] * bub_params_c.K0 * dTdr_R * dt_L[threadIdx.x];
-//			// Accumulate bubble viscous dissipation
-//			SumVis 	+= 4.0 * Pi * Rp[threadIdx.x] * Rp[threadIdx.x] * 4.0 * bub_params_c.mu * d1Rp[threadIdx.x] / Rp[threadIdx.x] * d1Rp[threadIdx.x] * dt_L[threadIdx.x];
-
-//			counter++;
-//		}
-
-//		// Assign values back to the global memory
-//		bubbles_c.R_t[index] 	= Rt;
-//		bubbles_c.R_p[index] 	= Rp[threadIdx.x];
-//		bubbles_c.R_n[index] 	= Rn[threadIdx.x];
-//		bubbles_c.d1_R_p[index]	= d1Rp[threadIdx.x];
-//		bubbles_c.PG_p[index] 	= PGp[threadIdx.x];
-//		bubbles_c.dt[index]	= dt_L[threadIdx.x];
-//		bubbles_c.re[index]	= remain[threadIdx.x];
-//		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain[threadIdx.x] + bubbles_c.re_n[index]);
-//		max_iter[index]		= counter;
-//		//}
-//	}
-//	return;
-//}
 
 /* Mixture Kernels */
 
@@ -1074,18 +985,14 @@ __inline__ __host__ __device__ double surface_tension_water(double T){
 
 __inline__ __host__ __device__ double smooth_delta_x(	const int 	pos,
 					const double 	bub_x){
-
-	return (1.0/((double)sim_params_c.deltaBand))
-		* (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand)
-		* grid_c.rdx) * (((double)pos - 0.5)*grid_c.dx - bub_x)));
+	return delta_coef.x * (1.0 + cos(delta_coef.y * (((double)pos - 0.5)*grid_c.dx - bub_x)));
+//	return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdx) * (((double)pos - 0.5)*grid_c.dx - bub_x)));
 } // smooth_delta_x()
 
 __inline__ __host__ __device__ double smooth_delta_y(	const int 	pos,
 					const double 	bub_y){
-
-	return (1.0/((double)sim_params_c.deltaBand))
-		* (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand)
-		* grid_c.rdy) * (((double)pos - 0.5)*grid_c.dy - bub_y)));
+	return delta_coef.x * (1.0 + cos(delta_coef.z * (((double)pos - 0.5)*grid_c.dy - bub_y)));
+//	return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdy) * (((double)pos - 0.5)*grid_c.dy - bub_y)));
 } // smooth_delta_y()
 
 

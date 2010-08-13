@@ -9,7 +9,6 @@ using namespace thrust;
 
 // Mathematical constants
 const double 	Pi_h =  acos(-1.0);
-
 const double	Pi4r3_h = Pi_h * 4.0/3.0;
 
 mixture_t	mixture_h, mixture_htod;
@@ -593,6 +592,12 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	checkCUDAError("Grid To Device");
 
 	// Throw constants into cache
+	double3 tmp;
+
+	tmp.x = 1.0/((double)sim_params->deltaBand);
+	tmp.y = 2.0 * Pi / ((double)sim_params->deltaBand) * grid_size->rdx;
+	tmp.z = 2.0 * Pi / ((double)sim_params->deltaBand) * grid_size->rdy;
+
 	cutilSafeCall(cudaMemcpyToSymbol(mixture_c,	&mixture_htod,	sizeof(mixture_t)));
 
 	cutilSafeCall(cudaMemcpyToSymbol(sigma_c, &sigma_htod, sizeof(sigma_t)));
@@ -600,6 +605,7 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 
 	cutilSafeCall(cudaMemcpyToSymbol(Pi, &Pi_h, sizeof(double)));
 	cutilSafeCall(cudaMemcpyToSymbol(Pi4r3, &Pi4r3_h, sizeof(double)));
+	cutilSafeCall(cudaMemcpyToSymbol(delta_coef, &tmp, sizeof(double3)));
 	cutilSafeCall(cudaMemcpyToSymbol(array_c, array_index, sizeof(array_index_t)));
 	cutilSafeCall(cudaMemcpyToSymbol(grid_c, grid_size, sizeof(grid_t)));
 	cutilSafeCall(cudaMemcpyToSymbol(sim_params_c, sim_params, sizeof(sim_params_t)));
