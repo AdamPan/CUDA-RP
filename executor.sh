@@ -5,6 +5,9 @@ file_numbers=`ls confs/$1_[1-99].txt | sed "s/.txt//" | sed "s/confs\/$1_//"`
 target_dir_1=`date -I`
 target_dir_2=`date +%R`
 
+make clean
+make
+
 if [ -d $target_dir_1 ] ; then
    echo "$target_dir_1 exists"
 else
