@@ -727,27 +727,11 @@ __global__ void MixtureKMKernel(int km_width, int T_width, int fg_width){
 
 	const bool ok = ((i2m <= array_c.iend2m) && (j2m <= array_c.jend2m));
 
-	double T, fg;
-
 	if (ok){
-		fg = mixture_c.f_g[j * fg_width + i];
-		T = mixture_c.T[j * T_width + i];
-		mixture_c.k_m[j * km_width + i] = thermal_conductivity_water(T + mix_params_c.T_inf) * (1.0 - 3.0 * fg / (2.0 + fg));
+		mixture_c.k_m[j * km_width + i] = thermal_conductivity_water(mixture_c.T[j * T_width + i] + mix_params_c.T_inf) * (1.0 - 3.0 * mixture_c.f_g[j * fg_width + i] / (2.0 + mixture_c.f_g[j * fg_width + i]));
 	}
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//	Zeroes the work array
-//
-
-__global__ void WorkClearKernel(int Work_width){
-	const int i = blockDim.x * blockIdx.x + threadIdx.x;
-	const int j = blockDim.y * blockIdx.y + threadIdx.y;
-
-	if ((i + array_c.ista2m <= array_c.iend2m) && (j + array_c.jsta2m <= array_c.jend2m)){
-		mixture_c.Work[j*Work_width + i] = 0.0;
-	}
-}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //	Calculates heat transfer from bubbles to mixture
@@ -1007,9 +991,9 @@ int update_bubble_indices(){
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
 	BubbleUpdateIndexKernel <<< dimBubbleGrid, dimBubbleBlock >>> ();
-	cudaThreadSynchronize();
-	checkCUDAError("Bubble Update Index");
 
+	cudaThreadSynchronize();
+	checkCUDAError("Failed to update bubble index");
 	return 0;
 }
 
@@ -1020,32 +1004,27 @@ int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, in
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
-	cudaMemset2D(mixture_htod.f_g, f_g_pitch, 0, i2m * sizeof(double), j2m);
-	cudaThreadSynchronize();
-	checkCUDAError("Clear Void Fraction");
-
+	CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.f_g, f_g_pitch, 0, i2m * sizeof(double), j2m));
 	VoidFractionReverseLookupKernel <<< dimBubbleGrid, dimBubbleBlock >>> (f_g_width);
-	cudaThreadSynchronize();
-	checkCUDAError("Void Fraction Lookup");
-
 	if (plane_wave->cylindrical){
 		VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock >>> (f_g_width);
-		cudaThreadSynchronize();
-		checkCUDAError("Void Fraction Cylindrical Conditions");
 	}
 
+	cudaThreadSynchronize();
+	checkCUDAError("Failed to calculate void fraction");
 	return 0;
 }
 
-int synchronize_void_fraction(mixture_t mixture_htod, size_t f_g_pitch){
+int synchronize_void_fraction(mixture_t mixture_htod, size_t f_g_pitch, cudaStream_t stream[]){
 
-	cudaMemcpy2D(mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice);
-	cudaMemcpy2D(mixture_htod.f_gm, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice);
+	CUDA_SAFE_CALL(cudaMemcpy2DAsync(mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[0]));
+	CUDA_SAFE_CALL(cudaMemcpy2DAsync(mixture_htod.f_gm, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[1]));
 
+	cudaThreadSynchronize();
 	return 0;
 }
 
-int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width, int p_width, int Work_width, size_t f_g_pitch, size_t Work_pitch, size_t p_pitch){
+int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width, int p_width, int Work_width, size_t f_g_pitch, size_t Work_pitch, size_t p_pitch, cudaStream_t stream[]){
 	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
 	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
 			(j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
@@ -1053,37 +1032,27 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
-	cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m);
-	cudaThreadSynchronize();
-	checkCUDAError("Clear Work Kernel");
-
+	CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m));
 	// Void fraction (fg) prediction, store it in the work array
-	VFPredictionKernel <<< dim2mGrid, dim2mBlock >>> (f_g_width);
-	cudaThreadSynchronize();
-	checkCUDAError("Void Fraction Prediction");
-
+	VFPredictionKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (f_g_width);
 	// Store variables
-	cudaMemcpy2D(	mixture_htod.pn, p_pitch, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1m, cudaMemcpyDeviceToDevice);
-	cudaMemcpy2D(	mixture_htod.f_gm, f_g_pitch, mixture_htod.f_gn, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice);
-	cudaMemcpy2D(	mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice);
+	CUDA_SAFE_CALL(cudaMemcpy2DAsync(	mixture_htod.pn, p_pitch, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1m, cudaMemcpyDeviceToDevice, stream[0]));
+	CUDA_SAFE_CALL(cudaMemcpy2DAsync(	mixture_htod.f_gm, f_g_pitch, mixture_htod.f_gn, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[0]));
+	CUDA_SAFE_CALL(cudaMemcpy2DAsync(	mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[0]));
 
-	cudaMemcpy(bubbles_htod.R_pn, bubbles_htod.R_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
-	cudaMemcpy(bubbles_htod.R_nn, bubbles_htod.R_n, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
-	cudaMemcpy(bubbles_htod.d1_R_n, bubbles_htod.d1_R_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
-	cudaMemcpy(bubbles_htod.PG_n, bubbles_htod.PG_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
-	cudaMemcpy(bubbles_htod.PL_m, bubbles_htod.PL_n, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
-	cudaMemcpy(bubbles_htod.PL_n, bubbles_htod.PL_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
-	cudaMemcpy(bubbles_htod.dt_n, bubbles_htod.dt, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
-	cudaMemcpy(bubbles_htod.re_n, bubbles_htod.re, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice);
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.R_pn, bubbles_htod.R_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.R_nn, bubbles_htod.R_n, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.d1_R_n, bubbles_htod.d1_R_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.PG_n, bubbles_htod.PG_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.PL_m, bubbles_htod.PL_n, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.PL_n, bubbles_htod.PL_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.dt_n, bubbles_htod.dt, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.re_n, bubbles_htod.re, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice, stream[1]));
 
 	// Store the predicted void fractions (fg)
-	cudaMemcpy2D(	mixture_htod.f_g, f_g_pitch,
-			mixture_htod.Work, Work_pitch,
-			sizeof(double)*i2m, j2m,
-			cudaMemcpyDeviceToDevice);
+	CUDA_SAFE_CALL(cudaMemcpy2DAsync(	mixture_htod.f_g, f_g_pitch, mixture_htod.Work, Work_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[0]));
 
-	checkCUDAError("Store Predicted Void Fraction");
-
+	cudaThreadSynchronize();
 	return 0;
 }
 
@@ -1097,12 +1066,10 @@ int calculate_velocity_field(int vx_width, int vy_width, int rho_m_width, int p0
 	dim3 dimVBGrid((max(max(i2m,i2n),max(j2m,j2n)) + LINEAR_BLOCK_SIZE - 1)/ LINEAR_BLOCK_SIZE);
 
 	VelocityKernel <<< dimVelocityGrid, dimVelocityBlock >>> (vx_width, vy_width, rho_m_width, p0_width, c_sl_width);
-	cudaThreadSynchronize();
-	checkCUDAError("Velocity");
 	VelocityBoundaryKernel <<< dimVBGrid, dimVBBlock >>> (vx_width, vy_width);
-	cudaThreadSynchronize();
-	checkCUDAError("Velocity Boundary");
 
+	cudaThreadSynchronize();
+	checkCUDAError("Failed to calculate velocity");
 	return 0;
 }
 
@@ -1116,12 +1083,13 @@ int bubble_motion(bubble_t bubbles_htod, int vx_width, int vy_width){
 	CUDA_SAFE_CALL(cudaMemcpy(bubbles_htod.v_B, bubbles_htod.v_L, sizeof(double2)*numBubbles, cudaMemcpyDeviceToDevice));
 	// Move the bubbles and update the bubble midpoint/nodepoint indices
 	BubbleMotionKernel <<< dimBubbleGrid, dimBubbleBlock >>> ();
-	cudaThreadSynchronize();
 
+	cudaThreadSynchronize();
+	checkCUDAError("Failed to move bubbles");
 	return 0;
 }
 
-double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, double P_inf, int p0_width, int p_width, int f_g_width, int vx_width, int vy_width, int rho_l_width, int c_sl_width, int Work_width, size_t Work_pitch){
+double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, double P_inf, int p0_width, int p_width, int f_g_width, int vx_width, int vy_width, int rho_l_width, int c_sl_width, int Work_width, size_t Work_pitch, cudaStream_t stream[]){
 	double resimax = 0.0;
 
 	dim3 dimMBPBlock(LINEAR_BLOCK_SIZE);
@@ -1132,31 +1100,24 @@ double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, dou
 			(j1m + TILE_BLOCK_HEIGHT - 1)/TILE_BLOCK_HEIGHT);
 
 	cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m);
-	cudaThreadSynchronize();
-	checkCUDAError("Clear Work Kernel");
 
-	MixturePressureKernel <<< dim1mGrid, dim1mBlock , 3 >>> (vx_width, vy_width, f_g_width, rho_l_width, c_sl_width, p0_width, p_width, Work_width);
-	cudaThreadSynchronize();
-	checkCUDAError("Mixture Pressure");
+	MixturePressureKernel <<< dim1mGrid, dim1mBlock >>> (vx_width, vy_width, f_g_width, rho_l_width, c_sl_width, p0_width, p_width, Work_width);
 
-	cudaMemcpy2D(	mixture_h.Work, sizeof(double)*i2m,
-			mixture_htod.Work, Work_pitch,
-			sizeof(double)*i2m, j2m,
-			cudaMemcpyDeviceToHost);
-	checkCUDAError("Work Array Copy");
+	cudaMemcpy2DAsync(mixture_h.Work, sizeof(double)*i2m, mixture_htod.Work, Work_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost, stream[0]);
 
-	MixtureBoundaryPressureKernel <<< dimMBPGrid, dimMBPBlock >>> (p0_width);
+	MixtureBoundaryPressureKernel <<< dimMBPGrid, dimMBPBlock, 0, stream[1] >>> (p0_width);
 
 	resimax = 0;
+	cudaStreamSynchronize(stream[0]);
 	for (int i = 0; i < i2m * j2m; i++){
 		if (resimax < mixture_h.Work[i]){
 		resimax = mixture_h.Work[i];
 		}
 	}
 	resimax /= P_inf;
-	cudaThreadSynchronize();
-	checkCUDAError("Boundary Pressure");
 
+	cudaThreadSynchronize();
+	checkCUDAError("Failed to calculate pressure");
 	return resimax;
 }
 
@@ -1166,12 +1127,12 @@ int interpolate_bubble_pressure(int p0_width){
 
 	BubbleInterpolationScalarKernel <<< dimBubbleGrid, dimBubbleBlock >>> (p0_width);
 	cudaThreadSynchronize();
-	checkCUDAError("Bubble interpolation scalar");
+	checkCUDAError("Failed to calculate PL for bubbles");
 
 	return 0;
 }
 
-int calculate_temperature(bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int p_width, int rho_m_width, int C_pm_width, int Work_width){
+int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int p_width, int rho_m_width, int C_pm_width, int Work_width, size_t Work_pitch, cudaStream_t stream[]){
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
@@ -1182,32 +1143,17 @@ int calculate_temperature(bub_params_t *bub_params, int k_m_width, int T_width, 
 	dim3 dimMBTBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimMBTGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1)/LINEAR_BLOCK_SIZE);
 
-//	int num_streams = 2;
-//	cudaStream_t streams[num_streams];
-//	
-//	for (int i = 0; i < num_streams; i++){
-//		cudaStreamCreate(&streams[i]);
-//	}
-	
-	MixtureKMKernel <<< dim2mGrid, dim2mBlock >>> (k_m_width, T_width, f_g_width);
-	cudaThreadSynchronize();
-	MixtureEnergyKernel <<< dim2mGrid, dim2mBlock >>> (k_m_width, T_width, Ex_width, Ey_width);
-	cudaThreadSynchronize();
-	WorkClearKernel <<< dim2mGrid, dim2mBlock >>> (Work_width);
-	cudaThreadSynchronize();
-	if(bub_params->enabled){
-		BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock >>> (Work_width);
-	}
-	cudaThreadSynchronize();
-//	checkCUDAError("Temperature Setup");
+	CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m));
 
-//	for (int i = 0; i < num_streams; i++){
-//		cudaStreamDestroy(streams[i]);
-//	}
+	MixtureKMKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (k_m_width, T_width, f_g_width);
+	MixtureEnergyKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (k_m_width, T_width, Ex_width, Ey_width);
+	if(bub_params->enabled){
+		BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[1] >>> (Work_width);
+	}
+
+	cudaThreadSynchronize();
 
 	MixtureTemperatureKernel <<< dim2mGrid, dim2mBlock >>> (T_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width);
-//	cudaThreadSynchronize();
-//	checkCUDAError("Mixture temperature 1");
 
 	MixtureBoundaryTemperatureKernel <<< dimMBTGrid, dimMBTBlock >>> (T_width);
 	cudaThreadSynchronize();
@@ -1244,207 +1190,6 @@ int solve_bubble_radii(bubble_t bubbles_htod){
 
 	return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
 }
-
-//int solve_bubble_radii_host(bubble_t bubbles_h, bubble_t bubbles_htod, bub_params_t bub_params, mix_params_t mix_params){
-//	double Rp, Rn, d1Rp, PGp, dt_L, remain;
-//	double PC0, PC1, PC2, time;
-
-//	int debugcount;
-
-//	//double d1Rn
-//	double PGn, PL, Rt, omega_N;
-//	double dTdr_R, SumHeat, SumVis;
-//	doublecomplex alpha_N, Lp_N;
-
-//	int maxiter = 0;
-
-//	cudaMemcpy(bubbles_h.ibm,	bubbles_htod.ibm,	sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.ibn,	bubbles_htod.ibn,	sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.pos,	bubbles_htod.pos,	sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.R_t,	bubbles_htod.R_t,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.R_p,	bubbles_htod.R_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.R_pn,	bubbles_htod.R_pn,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.R_n,	bubbles_htod.R_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.R_nn,	bubbles_htod.R_nn,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.d1_R_p,	bubbles_htod.d1_R_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.d1_R_n,	bubbles_htod.d1_R_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.PG_p,	bubbles_htod.PG_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.PG_n,	bubbles_htod.PG_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.PL_p,	bubbles_htod.PL_p,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.PL_n,	bubbles_htod.PL_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.PL_m,	bubbles_htod.PL_m,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.Q_B,	bubbles_htod.Q_B,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.n_B,	bubbles_htod.n_B,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.dt,	bubbles_htod.dt,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.dt_n,	bubbles_htod.dt_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.re,	bubbles_htod.re,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.re_n,	bubbles_htod.re_n,	sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.v_B,	bubbles_htod.v_B,	sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(bubbles_h.v_L,	bubbles_htod.v_L,	sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-
-//	int max_iter_device = solve_bubble_radii(bubbles_htod);
-
-//	for (int index = 0; index < numBubbles; index++){
-//		//for (index; (index < index + blockDim.x) && (index < num_bubbles); index++){
-
-//		Rp 	= bubbles_h.R_pn[index];
-//		Rn 	= bubbles_h.R_nn[index];
-//		d1Rp 	= bubbles_h.d1_R_n[index];
-//		PGp	= bubbles_h.PG_n[index];
-//		dt_L	= bubbles_h.dt_n[index];
-//		remain	= bubbles_h.re_n[index] + mix_params.dt;
-
-//		PC0 = bubbles_h.PL_n[index] + bub_params.PL0;
-//		PC1 = 0.5*(bubbles_h.PL_p[index]-bubbles_h.PL_m[index])/mix_params.dt;
-//		PC2 = 0.5*(bubbles_h.PL_p[index]+bubbles_h.PL_m[index]-2.0*bubbles_h.PL_n[index])/(mix_params.dt * mix_params.dt);
-
-//		time = -bubbles_h.re_n[index];
-
-//		debugcount = 0;
-//		while (remain > 0.0){
-//			debugcount ++;
-//			//d1Rn 	= 	d1Rp;
-//			PGn 	= 	PGp;
-//			PL 	= 	PC2 * time * time + PC1 * time + PC0;
-
-//			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, &PGn, &PL, &dt_L, &remain, bub_params);
-//			time = time + dt_L;
-
-//			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params);
-
-//			Lp_N = solveLp(alpha_N, Rn);
-
-//			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params);
-
-//			dTdr_R 	= 	Lp_N.real / (abs(Lp_N) * abs(Lp_N)) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
-//					(bub_params.PG0 * bub_params.R03 - 0.5*(PGp+PGn)*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))*(0.5*(Rp+Rn))) +
-//					Lp_N.imag / (abs(Lp_N) * abs(Lp_N)) * bub_params.T0 / (bub_params.PG0 * bub_params.R03) *
-//					(PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
-
-//			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params.K0 * dTdr_R * dt_L;
-//			SumVis 	+= 4.0 * Pi * Rp * Rp * 4.0 * bub_params.mu * d1Rp / Rp * d1Rp * dt_L;
-
-//		}
-//		if (debugcount > maxiter) {maxiter = debugcount;}
-
-//		// Assign values back to the global memory
-//		bubbles_h.R_t[index] 	= Rt;
-//		bubbles_h.R_p[index] 	= Rp;
-//		bubbles_h.R_n[index] 	= Rn;
-//		bubbles_h.d1_R_p[index]	= d1Rp;
-//		bubbles_h.PG_p[index] 	= PGp;
-//		bubbles_h.dt[index]	= dt_L;
-//		bubbles_h.re[index]	= remain;
-//		bubbles_h.Q_B[index]	= (SumHeat + SumVis) / (mix_params.dt - remain + bubbles_h.re_n[index]);
-
-//		//}
-//	}
-
-
-//	bubble_t derp;
-
-//	derp.ibm	= (int2*) calloc(numBubbles,  sizeof(int2));
-//	derp.ibn	= (int2*) calloc(numBubbles,  sizeof(int2));
-//	derp.pos	= (double2*) calloc(numBubbles,  sizeof(double2));
-//	derp.R_t	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.R_p	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.R_pn	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.R_n	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.R_nn	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.d1_R_p	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.d1_R_n	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.PG_p	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.PG_n	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.PL_p	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.PL_n	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.PL_m	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.Q_B	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.n_B	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.dt	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.dt_n	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.re	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.re_n	= (double*) calloc(numBubbles,  sizeof(double));
-//	derp.v_B	= (double2*) calloc(numBubbles,  sizeof(double2));
-//	derp.v_L	= (double2*) calloc(numBubbles,  sizeof(double2));
-
-
-
-//	cudaMemcpy(derp.ibm,	bubbles_htod.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.ibn,	bubbles_htod.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.pos,	bubbles_htod.pos,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.R_t,	bubbles_htod.R_t,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.R_p,	bubbles_htod.R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.R_pn,	bubbles_htod.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.R_n,	bubbles_htod.R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.R_nn,	bubbles_htod.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.d1_R_p,	bubbles_htod.d1_R_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.d1_R_n,	bubbles_htod.d1_R_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.PG_p,	bubbles_htod.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.PG_n,	bubbles_htod.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.PL_p,	bubbles_htod.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.PL_n,	bubbles_htod.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.PL_m,	bubbles_htod.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.Q_B,	bubbles_htod.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.n_B,	bubbles_htod.n_B,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.dt,	bubbles_htod.dt,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.dt_n,	bubbles_htod.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.re,	bubbles_htod.re,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.re_n,	bubbles_htod.re_n,		sizeof(double)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.v_B,	bubbles_htod.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-//	cudaMemcpy(derp.v_L,	bubbles_htod.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyDeviceToHost);
-
-
-//	double delta[8] = {0,0,0,0,0,0,0,0};
-
-//	for (int i = 0; i < numBubbles; i++){
-//		delta[0]+=(bubbles_h.R_t[i] - derp.R_t[i]);
-//		delta[1]+=(bubbles_h.R_p[i] - derp.R_p[i]);
-//		delta[2]+=(bubbles_h.R_n[i] - derp.R_n[i]);
-//		delta[3]+=(bubbles_h.d1_R_p[i] - derp.d1_R_p[i]);
-//		delta[4]+=(bubbles_h.PG_p[i] - derp.PG_p[i]);
-//		delta[5]+=(bubbles_h.dt[i] - derp.dt[i]);
-//		delta[6]+=(bubbles_h.Q_B[i] - derp.Q_B[i]);
-//		delta[7]+=(bubbles_h.re[i] - derp.re[i]);
-
-//	}
-//	if (delta[0])printf("Delta R_t = %4.2E  \n", delta[0] / numBubbles);
-//	if (delta[1])printf("Delta R_p = %4.2E  \n", delta[1] / numBubbles);
-//	if (delta[2])printf("Delta R_n = %4.2E  \n", delta[2] / numBubbles);
-//	if (delta[3])printf("Delta d1_R_p = %4.2E  \n", delta[3] / numBubbles);
-//	if (delta[4])printf("Delta PG_p = %4.2E  \n", delta[4] / numBubbles);
-//	if (delta[5])printf("Delta dt = %4.2E  \n", delta[5] / numBubbles);
-//	if (delta[6])printf("Delta Q_B = %4.2E  \n", delta[6] / numBubbles);
-//	if (delta[7])printf("Delta re = %4.2E\n", delta[7] / numBubbles);
-//	printf("\n");
-
-
-//	cudaMemcpy(bubbles_htod.ibm,	bubbles_h.ibm,		sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.ibn,	bubbles_h.ibn,		sizeof(int2)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.pos,	bubbles_h.pos,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.R_t,	bubbles_h.R_t,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.R_p,	bubbles_h.R_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.R_pn,	bubbles_h.R_pn,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.R_n,	bubbles_h.R_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.R_nn,	bubbles_h.R_nn,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.d1_R_p,	bubbles_h.d1_R_p,	sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.d1_R_n,	bubbles_h.d1_R_n,	sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.PG_p,	bubbles_h.PG_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.PG_n,	bubbles_h.PG_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.PL_p,	bubbles_h.PL_p,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.PL_n,	bubbles_h.PL_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.PL_m,	bubbles_h.PL_m,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.Q_B,	bubbles_h.Q_B,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.n_B,	bubbles_h.n_B,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.dt,	bubbles_h.dt,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.dt_n,	bubbles_h.dt_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.re,	bubbles_h.re,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.re_n,	bubbles_h.re_n,		sizeof(double)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.v_B,	bubbles_h.v_B,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-//	cudaMemcpy(bubbles_htod.v_L,	bubbles_h.v_L,		sizeof(double2)*numBubbles,	cudaMemcpyHostToDevice);
-//	printf("The device iterated %i times\n", max_iter_device);
-//	return maxiter;
-//}
-
 
 void sort(bubble_t bubbles_htod, thrust::device_vector<int> max_iter_d){
 	thrust::host_vector<int> max_iter_h = max_iter_d;

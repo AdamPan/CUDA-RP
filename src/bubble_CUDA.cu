@@ -61,6 +61,12 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 
 	int max_iter;
 
+	int num_streams = 3;
+	cudaStream_t stream[num_streams];
+	for (int i = 0; i < num_streams; i++){
+		cudaStreamCreate(&stream[i]);
+	}
+
 	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceScheduleYield));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleUpdateIndexKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationScalarKernel, cudaFuncCachePreferL1));
@@ -105,7 +111,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 
 	if(bub_params->enabled){
 		if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
-		if(synchronize_void_fraction(mixture_htod, f_g_pitch)){exit(EXIT_FAILURE);}
+		if(synchronize_void_fraction(mixture_htod, f_g_pitch, stream)){exit(EXIT_FAILURE);}
 	}
 
 	// Zero all counters
@@ -138,7 +144,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		checkCUDAError("Copy tstep");
 
 		// Store Bubble and Mixture, and predict void fraction
-		if(store_variables(mixture_htod, bubbles_htod, f_g_width, p_width, Work_width, f_g_pitch, Work_pitch, p_pitch)){exit(EXIT_FAILURE);}
+		if(store_variables(mixture_htod, bubbles_htod, f_g_width, p_width, Work_width, f_g_pitch, Work_pitch, p_pitch, stream)){exit(EXIT_FAILURE);}
 
 		// Update mixture velocity
 		if(calculate_velocity_field(vx_width, vy_width, rho_m_width, p0_width, c_sl_width)){exit(EXIT_FAILURE);}
@@ -148,7 +154,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 			if(bubble_motion(bubbles_htod, vx_width, vy_width)){exit(EXIT_FAILURE);}
 		}
 
-		resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
+		resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream);
 
 		loop = 0;
 
@@ -167,7 +173,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 				if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
 
 				// Calculate Pressure
-				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
+				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream);
 
 				#ifdef _DEBUG_
 				printf("\033[A\033[2K");
@@ -178,7 +184,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		}
 
 		// Calculate mixture temperature
-		if(calculate_temperature(bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
+		if(calculate_temperature(mixture_htod, bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width, Work_pitch, stream)){exit(EXIT_FAILURE);}
 		// Calculate mixture properties
 		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width)){exit(EXIT_FAILURE);}
 
@@ -346,6 +352,9 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	// Destroy the variables to prevent further errors
 	if(destroy_CUDA_variables(bub_params)){
 		exit(EXIT_FAILURE);
+	}
+	for (int i = 0; i < num_streams; i++){
+		cudaStreamDestroy(stream[i]);
 	}
 
 	return solution;
@@ -595,8 +604,8 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 	double3 tmp;
 
 	tmp.x = 1.0/((double)sim_params->deltaBand);
-	tmp.y = 2.0 * Pi / ((double)sim_params->deltaBand) * grid_size->rdx;
-	tmp.z = 2.0 * Pi / ((double)sim_params->deltaBand) * grid_size->rdy;
+	tmp.y = 2.0 * Pi_h / ((double)sim_params->deltaBand) * grid_size->rdx;
+	tmp.z = 2.0 * Pi_h / ((double)sim_params->deltaBand) * grid_size->rdy;
 
 	cutilSafeCall(cudaMemcpyToSymbol(mixture_c,	&mixture_htod,	sizeof(mixture_t)));
 
@@ -936,23 +945,41 @@ mixture_t init_mix_array(mix_params_t * mix_params, array_index_t array_index){
 	int E_xVol = (array_index.iend1n - array_index.ista1n + 1) * (array_index.jend1m - array_index.jsta1m + 1);
 	int E_yVol = (array_index.iend1m - array_index.ista1m + 1) * (array_index.jend1n - array_index.jsta1n + 1);
 
-	mix.T 		= (double*) calloc(m2Vol,  sizeof(double));
-	mix.p0		= (double*) calloc(m1Vol,  sizeof(double));
-	mix.p		= (double2*) calloc(m1Vol,  sizeof(double2));
-	mix.pn		= (double2*) calloc(m1Vol,  sizeof(double2));
-	mix.c_sl	= (double*) calloc(m1Vol,  sizeof(double));
-	mix.rho_m	= (double*) calloc(m1Vol,  sizeof(double));
-	mix.rho_l	= (double*) calloc(m1Vol,  sizeof(double));
-	mix.f_g		= (double*) calloc(m2Vol,  sizeof(double));
-	mix.f_gn	= (double*) calloc(m2Vol,  sizeof(double));
-	mix.f_gm	= (double*) calloc(m2Vol,  sizeof(double));
-	mix.k_m		= (double*) calloc(m2Vol,  sizeof(double));
-	mix.C_pm	= (double*) calloc(m1Vol,  sizeof(double));
-	mix.Work	= (double*) calloc(m2Vol,  sizeof(double));
-	mix.vx		= (double*) calloc(v_xVol,  sizeof(double));
-	mix.vy		= (double*) calloc(v_yVol,  sizeof(double));
-	mix.Ex		= (double*) calloc(E_xVol,  sizeof(double));
-	mix.Ey		= (double*) calloc(E_yVol,  sizeof(double));
+//	mix.T 		= (double*) calloc(m2Vol,  sizeof(double));
+//	mix.p0		= (double*) calloc(m1Vol,  sizeof(double));
+//	mix.p		= (double2*) calloc(m1Vol,  sizeof(double2));
+//	mix.pn		= (double2*) calloc(m1Vol,  sizeof(double2));
+//	mix.c_sl	= (double*) calloc(m1Vol,  sizeof(double));
+//	mix.rho_m	= (double*) calloc(m1Vol,  sizeof(double));
+//	mix.rho_l	= (double*) calloc(m1Vol,  sizeof(double));
+//	mix.f_g		= (double*) calloc(m2Vol,  sizeof(double));
+//	mix.f_gn	= (double*) calloc(m2Vol,  sizeof(double));
+//	mix.f_gm	= (double*) calloc(m2Vol,  sizeof(double));
+//	mix.k_m		= (double*) calloc(m2Vol,  sizeof(double));
+//	mix.C_pm	= (double*) calloc(m1Vol,  sizeof(double));
+//	mix.Work	= (double*) calloc(m2Vol,  sizeof(double));
+//	mix.vx		= (double*) calloc(v_xVol,  sizeof(double));
+//	mix.vy		= (double*) calloc(v_yVol,  sizeof(double));
+//	mix.Ex		= (double*) calloc(E_xVol,  sizeof(double));
+//	mix.Ey		= (double*) calloc(E_yVol,  sizeof(double));
+
+	cudaMallocHost((void**)&mix.T, m2Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.p0, m1Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.p, m1Vol*sizeof(double2));
+	cudaMallocHost((void**)&mix.pn, m1Vol*sizeof(double2));
+	cudaMallocHost((void**)&mix.c_sl, m1Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.rho_m, m1Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.rho_l, m1Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.f_g, m2Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.f_gn, m2Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.f_gm, m2Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.k_m, m2Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.C_pm, m1Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.Work, m2Vol*sizeof(double));
+	cudaMallocHost((void**)&mix.vx, v_xVol*sizeof(double));
+	cudaMallocHost((void**)&mix.vy, v_yVol*sizeof(double));
+	cudaMallocHost((void**)&mix.Ex, E_xVol*sizeof(double));
+	cudaMallocHost((void**)&mix.Ey, E_yVol*sizeof(double));
 
 	for (int i = 0; i < m1Vol; i++){
 		mix.p0[i]	= 0.0;
@@ -1022,29 +1049,54 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 	}
 	numBubbles = (*bub_params).npi = bub.size();
 
-	ret_bub.ibm	= (int2*) calloc(bub.size(),  sizeof(int2));
-	ret_bub.ibn	= (int2*) calloc(bub.size(),  sizeof(int2));
-	ret_bub.pos	= (double2*) calloc(bub.size(),  sizeof(double2));
-	ret_bub.R_t	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.R_p	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.R_pn	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.R_n	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.R_nn	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.d1_R_p	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.d1_R_n	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.PG_p	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.PG_n	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.PL_p	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.PL_n	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.PL_m	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.Q_B	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.n_B	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.dt	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.dt_n	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.re	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.re_n	= (double*) calloc(bub.size(),  sizeof(double));
-	ret_bub.v_B	= (double2*) calloc(bub.size(),  sizeof(double2));
-	ret_bub.v_L	= (double2*) calloc(bub.size(),  sizeof(double2));
+//	ret_bub.ibm	= (int2*) calloc(bub.size(),  sizeof(int2));
+//	ret_bub.ibn	= (int2*) calloc(bub.size(),  sizeof(int2));
+//	ret_bub.pos	= (double2*) calloc(bub.size(),  sizeof(double2));
+//	ret_bub.R_t	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.R_p	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.R_pn	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.R_n	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.R_nn	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.d1_R_p	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.d1_R_n	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.PG_p	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.PG_n	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.PL_p	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.PL_n	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.PL_m	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.Q_B	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.n_B	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.dt	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.dt_n	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.re	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.re_n	= (double*) calloc(bub.size(),  sizeof(double));
+//	ret_bub.v_B	= (double2*) calloc(bub.size(),  sizeof(double2));
+//	ret_bub.v_L	= (double2*) calloc(bub.size(),  sizeof(double2));
+
+	cudaMallocHost((void**)&ret_bub.ibm, bub.size()*sizeof(int2));
+	cudaMallocHost((void**)&ret_bub.ibn, bub.size()*sizeof(int2));
+	cudaMallocHost((void**)&ret_bub.pos, bub.size()*sizeof(double2));
+	cudaMallocHost((void**)&ret_bub.R_t, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.R_p, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.R_pn, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.R_n, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.R_nn, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.d1_R_p, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.d1_R_n, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.PG_p, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.PG_n, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.PL_p, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.PL_n, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.PL_m, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.Q_B, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.n_B, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.dt, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.dt_n, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.re, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.re_n, bub.size()*sizeof(double));
+	cudaMallocHost((void**)&ret_bub.v_B, bub.size()*sizeof(double2));
+	cudaMallocHost((void**)&ret_bub.v_L, bub.size()*sizeof(double2));
+	
 
 	for (int i = 0; i < (*bub_params).npi; i++){
 		ret_bub.ibm[i]		= bub[i].ibm;
