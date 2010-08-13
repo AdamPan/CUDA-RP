@@ -2,6 +2,9 @@
 #include "complex.cuh"
 #include "double_vector_math.cuh"
 
+#define BUB_RAD_MAX_THREADS 256
+#define BUB_RAD_MIN_BLOCKS 2
+
 // Array sizes
 extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
 extern int numBubbles;
@@ -114,18 +117,16 @@ __forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, doubl
 // Implicit solver for omega_N and alpha_N
 __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, const double PG, const double R, const bub_params_t bub_params){
 	// Calculate coefficients
-	double	Rx = R / bub_params.R0,
-		coef1 = bub_params.PG0 /(PG * Rx * Rx * Rx),
-		coef2 = PG * bub_params.rho,
-		coef3 = 4.0 / (R * R),
-		value1 = -2.0 * bub_params.sig * bub_params.rho / R;
-		
+	double Rx = R / bub_params.R0;
+	double coef1 = bub_params.PG0 /(PG * Rx * Rx * Rx);
+	double coef2 = PG * bub_params.rho ;
+	double coef3 = 4.0 / (R * R);
+	double value1 = -2.0 * bub_params.sig * bub_params.rho / R;
 	// Zeroeth step
 	doublecomplex Upsilon_N = make_doublecomplex(3.0*bub_params.gam, 0.0) * coef1;
 	double mu_eff = bub_params.mu;
 	double eta = Upsilon_N.real * coef2 + value1 - mu_eff * mu_eff * coef3;
 	double omega_N = sqrt(max(eta, 1.0e-6 * epsilon(eta))) / ( bub_params.rho * R );
-	#pragma unroll 3
 	for (int i = 0; i < 3; i++){
 		*alpha_N = Alpha(R, omega_N, bub_params.coeff_alpha);
 		Upsilon_N = Upsilon(*alpha_N, bub_params.gam) * coef1;
@@ -167,10 +168,10 @@ static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecom
 
 // Calculates and returns PG
 __forceinline__ __host__ __device__ double solvePG(const double PGn, const double Rp, const double Rn, const double omega_N, const double dt, const doublecomplex Lp_N, const bub_params_t bub_params){
-	double	R = 0.5 * (Rp + Rn),
-		Rx  = R /bub_params.R0,
-		Rpx = Rp/bub_params.R0,
-		Rnx = Rn/bub_params.R0;
+	double R   = 0.5 * (Rp + Rn),
+	Rx  = R /bub_params.R0,
+	Rpx = Rp/bub_params.R0,
+	Rnx = Rn/bub_params.R0;
 
 	double 	Lp_NR = Lp_N.real / (Lp_N.real*Lp_N.real + Lp_N.imag*Lp_N.imag),
 		Lp_NI = Lp_N.imag / (Lp_N.real*Lp_N.real + Lp_N.imag*Lp_N.imag),
@@ -293,20 +294,20 @@ __global__ void BubbleMotionKernel(){
 }
 
 // Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
-__global__ void BubbleRadiusKernel(int * max_iter){
+__global__ __launch_bounds__(BUB_RAD_MAX_THREADS, BUB_RAD_MIN_BLOCKS) void BubbleRadiusKernel(int * max_iter){
 	const int index = blockDim.x * blockIdx.x + threadIdx.x;
 
 	double PGn, PL, Rt, omega_N;
 	double dTdr_R = 0, SumHeat, SumVis;
 	doublecomplex alpha_N, Lp_N;
 
-	double Rp, Rn, d1Rp, dt_L, remain, PC0, PC1, PC2, time;
-	double PGp;
+	double PGp, Rp, Rn, d1Rp, dt_L, remain, time;
+	double PC0, PC1, PC2;
 
-	double s0, s1, counter;
+	double s0, s1;
+	int counter;
 
 	if (index < num_bubbles){
-
 		// Cache bubble parameters
 		Rp 	= bubbles_c.R_pn[index];
 		Rn 	= bubbles_c.R_nn[index];
@@ -339,15 +340,19 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 
 			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
 
-			//PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
+//			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
 
 			// Calculate the the partial derivative dT/dr at the surface of the bubble
 			s0 = 0.5*(Rp+Rn);
-			s1 = 1 / (abs(Lp_N) * abs(Lp_N)) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
+			s1 = 1 / (Lp_N.real * Lp_N.real + Lp_N.imag * Lp_N.imag) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
 			dTdr_R 	= 	Lp_N.real * s1 * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp+PGn)*s0*s0*s0) +
 					Lp_N.imag * s1 * (PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
 
 			// Accumulate bubble heat
+			if (counter < 0){
+				return;
+			}
+
 			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params_c.K0 * dTdr_R * dt_L;
 			// Accumulate bubble viscous dissipation
 			SumVis 	+= 4.0 * Pi * Rp * Rp * 4.0 * bub_params_c.mu * d1Rp / Rp * d1Rp * dt_L;
@@ -367,7 +372,98 @@ __global__ void BubbleRadiusKernel(int * max_iter){
 		max_iter[index]		= counter;
 		//}
 	}
+	return;
 }
+
+//// Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
+//__global__ __launch_bounds__(BUB_RAD_MAX_THREADS, BUB_RAD_MIN_BLOCKS) void BubbleRadiusKernel(int * max_iter){
+//	__shared__ double Rp[BUB_RAD_MAX_THREADS];
+//	__shared__ double Rn[BUB_RAD_MAX_THREADS];
+//	__shared__ double d1Rp[BUB_RAD_MAX_THREADS];
+//	__shared__ double PGp[BUB_RAD_MAX_THREADS];
+//	__shared__ double dt_L[BUB_RAD_MAX_THREADS];
+//	__shared__ double remain[BUB_RAD_MAX_THREADS];
+//	__shared__ double time[BUB_RAD_MAX_THREADS];
+
+//	const int index = blockDim.x * blockIdx.x + threadIdx.x;
+
+//	double PGn, PL, Rt, omega_N;
+//	double dTdr_R = 0, SumHeat, SumVis;
+//	doublecomplex alpha_N, Lp_N;
+
+////	double PGp, Rp, Rn, d1Rp, dt_L, remain, time;
+//	double PC0, PC1, PC2;
+
+//	double s0, s1;
+//	int counter;
+
+//	if (index < num_bubbles){
+//		// Cache bubble parameters
+//		Rp[threadIdx.x] 	= bubbles_c.R_pn[index];
+//		Rn[threadIdx.x] 	= bubbles_c.R_nn[index];
+//		d1Rp[threadIdx.x] 	= bubbles_c.d1_R_n[index];
+//		PGp[threadIdx.x]	= bubbles_c.PG_n[index];
+//		dt_L[threadIdx.x]	= bubbles_c.dt_n[index];
+//		remain[threadIdx.x]	= bubbles_c.re_n[index] + mix_params_c.dt;
+//		time[threadIdx.x] = -bubbles_c.re_n[index];
+
+//		// Calculate coefficients for predicting liquid pressure around the bubble
+//		PC0 = bubbles_c.PL_n[index] + bub_params_c.PL0;
+//		PC1 = 0.5*(bubbles_c.PL_p[index]-bubbles_c.PL_m[index])/mix_params_c.dt;
+//		PC2 = 0.5*(bubbles_c.PL_p[index]+bubbles_c.PL_m[index]-2.0*bubbles_c.PL_n[index])/(mix_params_c.dt * mix_params_c.dt);
+
+//		// Reset accumulated variables
+//		SumHeat = 0.0;
+//		SumVis = 0.0;
+//		counter = 0;	// Loop counter
+
+//		while (remain[threadIdx.x] > 0.0){
+//			PGn 	= 	PGp[threadIdx.x];	// Step the gas pressure forwards
+//			PL 	= 	PC2 * time[threadIdx.x] * time[threadIdx.x] + PC1 * time[threadIdx.x] + PC0;	// Step the liquid pressure forwards
+
+//			solveRayleighPlesset(&Rt, &Rp[threadIdx.x], &Rn[threadIdx.x], &d1Rp[threadIdx.x], PGn, PL, &dt_L[threadIdx.x], &remain[threadIdx.x], bub_params_c);	// Solve the reduced order rayleigh-plesset eqn
+//			time[threadIdx.x] = time[threadIdx.x] + dt_L[threadIdx.x];	// Increment time step
+
+//			omega_N = solveOmegaN (&alpha_N, PGn, Rn[threadIdx.x], bub_params_c);	// Solve bubble natural frequency
+
+//			Lp_N = solveLp(alpha_N, Rn[threadIdx.x]);	// Solve Lp
+
+//			PGp[threadIdx.x] = solvePG(PGn, Rp[threadIdx.x], Rn[threadIdx.x], omega_N, dt_L[threadIdx.x], Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
+
+////			PGp[threadIdx.x] = bub_params_c.PG0 * bub_params_c.R03 / (Rp[threadIdx.x] * Rp[threadIdx.x] * Rp[threadIdx.x]);
+
+//			// Calculate the the partial derivative dT/dr at the surface of the bubble
+//			s0 = 0.5*(Rp[threadIdx.x]+Rn[threadIdx.x]);
+//			s1 = 1 / (Lp_N.real * Lp_N.real + Lp_N.imag * Lp_N.imag) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
+//			dTdr_R 	= 	Lp_N.real * s1 * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp[threadIdx.x]+PGn)*s0*s0*s0) +
+//					Lp_N.imag * s1 * (PGp[threadIdx.x] * Rp[threadIdx.x] * Rp[threadIdx.x] * Rp[threadIdx.x] - PGn * Rn[threadIdx.x] * Rn[threadIdx.x] * Rn[threadIdx.x]) / (omega_N * dt_L[threadIdx.x]);
+
+//			// Accumulate bubble heat
+//			if (counter < 0){
+//				return;
+//			}
+
+//			SumHeat -= 4.0 * Pi * Rp[threadIdx.x] * Rp[threadIdx.x] * bub_params_c.K0 * dTdr_R * dt_L[threadIdx.x];
+//			// Accumulate bubble viscous dissipation
+//			SumVis 	+= 4.0 * Pi * Rp[threadIdx.x] * Rp[threadIdx.x] * 4.0 * bub_params_c.mu * d1Rp[threadIdx.x] / Rp[threadIdx.x] * d1Rp[threadIdx.x] * dt_L[threadIdx.x];
+
+//			counter++;
+//		}
+
+//		// Assign values back to the global memory
+//		bubbles_c.R_t[index] 	= Rt;
+//		bubbles_c.R_p[index] 	= Rp[threadIdx.x];
+//		bubbles_c.R_n[index] 	= Rn[threadIdx.x];
+//		bubbles_c.d1_R_p[index]	= d1Rp[threadIdx.x];
+//		bubbles_c.PG_p[index] 	= PGp[threadIdx.x];
+//		bubbles_c.dt[index]	= dt_L[threadIdx.x];
+//		bubbles_c.re[index]	= remain[threadIdx.x];
+//		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain[threadIdx.x] + bubbles_c.re_n[index]);
+//		max_iter[index]		= counter;
+//		//}
+//	}
+//	return;
+//}
 
 /* Mixture Kernels */
 
@@ -825,7 +921,7 @@ __global__ void MixtureEnergyKernel(int km_width, int T_width, int Ex_width, int
 //	Part 2 of a 2 part kernel
 //
 
-__global__ void MixtureTemperatureKernel(int T_width, int Ex_width, int Ey_width, int rhom_width, int Cpm_width, int Work_width){
+__global__ void MixtureTemperatureKernel(int T_width, int Ex_width, int Ey_width, int p_width, int rhom_width, int Cpm_width, int Work_width){
 	const int bx = blockIdx.x,	by = blockIdx.y;
 	const int tx = threadIdx.x,	ty = threadIdx.y;
 
@@ -834,6 +930,10 @@ __global__ void MixtureTemperatureKernel(int T_width, int Ex_width, int Ey_width
 
 	const int im = i + array_c.ista2m;
 	const int jm = j + array_c.jsta2m;
+
+	const int p_i = (jm - array_c.jsta1m) * p_width + im - array_c.ista1m;
+	const int Ex_i = (jm - array_c.jsta1m) * Ex_width + im - array_c.ista1n;
+	const int Ey_i = (jm - array_c.jsta1n) * Ey_width + im - array_c.ista1m;
 
 	const bool ok = ((im >= array_c.istam) && (im <= array_c.iendm) && (jm >= array_c.jstam) && (jm <= array_c.jendm));
 
@@ -844,14 +944,14 @@ __global__ void MixtureTemperatureKernel(int T_width, int Ex_width, int Ey_width
 		rhom = mixture_c.rho_m[(jm - array_c.jsta1m) * rhom_width + im - array_c.ista1m];
 		Cpm = mixture_c.C_pm[(jm - array_c.jsta1m) * Cpm_width + im - array_c.ista1m];
 		Q = mixture_c.Work[(jm - array_c.jsta2m) * Work_width + im - array_c.ista2m];
-	}
 
-	__syncthreads();
+		s0 = (mixture_c.p[p_i].x + mixture_c.p[p_i].y - mixture_c.pn[p_i].x - mixture_c.pn[p_i].y) / mix_params_c.dt;
+		s0 = 2.0 * (0.22) * 0.115129255 / ( mix_params_c.rho_inf * mix_params_c.cs_inf * plane_wave_c.omega * plane_wave_c.omega) * s0*s0;
+		Q += s0;
 
-	if (ok){
 		s0 = rhom * Cpm;
-		s1 = ( -mixture_c.Ex[(jm - array_c.jsta1m) * Ex_width + im - 1 - array_c.ista1n] + mixture_c.Ex[(jm - array_c.jsta1m) * Ex_width + im - array_c.ista1n]) * grid_c.rdx;
-		s2 = ( -mixture_c.Ey[(jm - 1 - array_c.jsta1n) * Ey_width + im - array_c.ista1m] + mixture_c.Ey[(jm - array_c.jsta1n) * Ey_width + im - array_c.ista1m]) * grid_c.rdy;
+		s1 = (mixture_c.Ex[Ex_i] - mixture_c.Ex[Ex_i - 1]) * grid_c.rdx;
+		s2 = (mixture_c.Ey[Ey_i] - mixture_c.Ey[Ey_i - Ey_width]) * grid_c.rdy;
 		mixture_c.T[(jm - array_c.jsta2m) * T_width + im - array_c.ista2m] += mix_params_c.dt * (s1 + s2 + Q ) / s0;
 	}
 }
@@ -1162,7 +1262,7 @@ int interpolate_bubble_pressure(int p0_width){
 	return 0;
 }
 
-int calculate_temperature(bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int rho_m_width, int C_pm_width, int Work_width){
+int calculate_temperature(bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int p_width, int rho_m_width, int C_pm_width, int Work_width){
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
@@ -1173,32 +1273,32 @@ int calculate_temperature(bub_params_t *bub_params, int k_m_width, int T_width, 
 	dim3 dimMBTBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimMBTGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1)/LINEAR_BLOCK_SIZE);
 
-	int num_streams = 2;
-	cudaStream_t streams[num_streams];
+//	int num_streams = 2;
+//	cudaStream_t streams[num_streams];
+//	
+//	for (int i = 0; i < num_streams; i++){
+//		cudaStreamCreate(&streams[i]);
+//	}
 	
-	for (int i = 0; i < num_streams; i++){
-		cudaStreamCreate(&streams[i]);
-	}
-	
-	MixtureKMKernel <<< dim2mGrid, dim2mBlock, 0, streams[0] >>> (k_m_width, T_width, f_g_width);
+	MixtureKMKernel <<< dim2mGrid, dim2mBlock >>> (k_m_width, T_width, f_g_width);
 //	cudaThreadSynchronize();
-	MixtureEnergyKernel <<< dim2mGrid, dim2mBlock, 0, streams[0] >>> (k_m_width, T_width, Ex_width, Ey_width);
+	MixtureEnergyKernel <<< dim2mGrid, dim2mBlock >>> (k_m_width, T_width, Ex_width, Ey_width);
 //	cudaThreadSynchronize();
-	WorkClearKernel <<< dim2mGrid, dim2mBlock, 0, streams[1] >>> (Work_width);
+	WorkClearKernel <<< dim2mGrid, dim2mBlock >>> (Work_width);
 //	cudaThreadSynchronize();
 	if(bub_params->enabled){
-		BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, streams[1] >>> (Work_width);
+		BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock >>> (Work_width);
 	}
-	cudaThreadSynchronize();
-	checkCUDAError("Temperature Setup");
+//	cudaThreadSynchronize();
+//	checkCUDAError("Temperature Setup");
 
-	for (int i = 0; i < num_streams; i++){
-		cudaStreamDestroy(streams[i]);
-	}
+//	for (int i = 0; i < num_streams; i++){
+//		cudaStreamDestroy(streams[i]);
+//	}
 
-	MixtureTemperatureKernel <<< dim2mGrid, dim2mBlock >>> (T_width, Ex_width, Ey_width, rho_m_width, C_pm_width, Work_width);
-	cudaThreadSynchronize();
-	checkCUDAError("Mixture temperature 1");
+	MixtureTemperatureKernel <<< dim2mGrid, dim2mBlock >>> (T_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width);
+//	cudaThreadSynchronize();
+//	checkCUDAError("Mixture temperature 1");
 
 	MixtureBoundaryTemperatureKernel <<< dimMBTGrid, dimMBTBlock >>> (T_width);
 	cudaThreadSynchronize();
@@ -1221,7 +1321,7 @@ int calculate_properties(int rho_l_width, int rho_m_width, int c_sl_width, int C
 
 int solve_bubble_radii(bubble_t bubbles_htod){
 
-	const int block = 64;
+	const int block = BUB_RAD_MAX_THREADS;
 	dim3 dimBubbleBlock(block);
 	dim3 dimBubbleGrid((numBubbles + block - 1) / (block));
 

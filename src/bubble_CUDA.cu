@@ -171,7 +171,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch);
 
 				#ifdef _DEBUG_
-				//printf("\033[A\033[2K");
+				printf("\033[A\033[2K");
 				printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n", nstep, loop, resimax, max_iter);
 				#endif
 				if (loop == 10000) {printf("Premature Termination at nstep %i, subloop %i\n\n", nstep, loop); break;}
@@ -179,7 +179,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		}
 
 		// Calculate mixture temperature
-		if(calculate_temperature(bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
+		if(calculate_temperature(bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width)){exit(EXIT_FAILURE);}
 		// Calculate mixture properties
 		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width)){exit(EXIT_FAILURE);}
 
