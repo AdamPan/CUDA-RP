@@ -985,14 +985,14 @@ __inline__ __host__ __device__ double surface_tension_water(double T){
 
 __inline__ __host__ __device__ double smooth_delta_x(	const int 	pos,
 					const double 	bub_x){
-	return delta_coef.x * (1.0 + cos(delta_coef.y * (((double)pos - 0.5)*grid_c.dx - bub_x)));
-//	return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdx) * (((double)pos - 0.5)*grid_c.dx - bub_x)));
+//	return delta_coef.x * (1.0 + cos(delta_coef.y * (((double)pos - 0.5)*grid_c.dx - bub_x)));
+	return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdx) * (((double)pos - 0.5)*grid_c.dx - bub_x)));
 } // smooth_delta_x()
 
 __inline__ __host__ __device__ double smooth_delta_y(	const int 	pos,
 					const double 	bub_y){
-	return delta_coef.x * (1.0 + cos(delta_coef.z * (((double)pos - 0.5)*grid_c.dy - bub_y)));
-//	return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdy) * (((double)pos - 0.5)*grid_c.dy - bub_y)));
+//	return delta_coef.x * (1.0 + cos(delta_coef.z * (((double)pos - 0.5)*grid_c.dy - bub_y)));
+	return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdy) * (((double)pos - 0.5)*grid_c.dy - bub_y)));
 } // smooth_delta_y()
 
 
@@ -1054,6 +1054,7 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
 	cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m);
+	cudaThreadSynchronize();
 	checkCUDAError("Clear Work Kernel");
 
 	// Void fraction (fg) prediction, store it in the work array
@@ -1131,6 +1132,7 @@ double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, dou
 			(j1m + TILE_BLOCK_HEIGHT - 1)/TILE_BLOCK_HEIGHT);
 
 	cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m);
+	cudaThreadSynchronize();
 	checkCUDAError("Clear Work Kernel");
 
 	MixturePressureKernel <<< dim1mGrid, dim1mBlock , 3 >>> (vx_width, vy_width, f_g_width, rho_l_width, c_sl_width, p0_width, p_width, Work_width);
@@ -1188,15 +1190,15 @@ int calculate_temperature(bub_params_t *bub_params, int k_m_width, int T_width, 
 //	}
 	
 	MixtureKMKernel <<< dim2mGrid, dim2mBlock >>> (k_m_width, T_width, f_g_width);
-//	cudaThreadSynchronize();
+	cudaThreadSynchronize();
 	MixtureEnergyKernel <<< dim2mGrid, dim2mBlock >>> (k_m_width, T_width, Ex_width, Ey_width);
-//	cudaThreadSynchronize();
+	cudaThreadSynchronize();
 	WorkClearKernel <<< dim2mGrid, dim2mBlock >>> (Work_width);
-//	cudaThreadSynchronize();
+	cudaThreadSynchronize();
 	if(bub_params->enabled){
 		BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock >>> (Work_width);
 	}
-//	cudaThreadSynchronize();
+	cudaThreadSynchronize();
 //	checkCUDAError("Temperature Setup");
 
 //	for (int i = 0; i < num_streams; i++){

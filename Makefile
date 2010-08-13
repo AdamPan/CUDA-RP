@@ -22,7 +22,7 @@ GENCODE_ARCH	+= -gencode=arch=compute_20,code=sm_20 -gencode=arch=compute_20,cod
 dbg		:= 0
 fastmath	:= 0
 keep		:= 0
-maxregisters	:= 32
+#maxregisters	:= 32
 
 # Rules / Targets
 include ./common.mk

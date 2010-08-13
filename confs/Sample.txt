@@ -54,4 +54,4 @@ Show T		=	1
 Show p		=	1
 Show p components	=	0
 Show v		=	0
-Show Bubbles	=	0
+Show Bubbles	=	1
