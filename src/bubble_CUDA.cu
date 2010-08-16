@@ -30,8 +30,9 @@ int numBubbles = 0;
  *                      Host Functions                        *
  **************************************************************/
 
-host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
-						PML_t	*PML,
+host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
+						grid_t		*grid_size,
+						PML_t		*PML,
 						sim_params_t	*sim_params,
 						bub_params_t	*bub_params,
 						plane_wave_t	*plane_wave,
@@ -41,16 +42,15 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	// Clear terminal for output
 	if(system("clear")){exit(EXIT_FAILURE);}
 
-
 	// Variable Declaration
 	// Storage variable for full solution (mixture and bubble data)
 	host_vector<solution_space> solution;
 
+	cudaEvent_t stop;
+	cudaEventCreateWithFlags(&stop, cudaEventBlockingSync);
+
 	// Mixture Parameters
 	mix_params_t	*mix_params = (mix_params_t*) calloc(1, sizeof(mix_params_t));
-
-	// Array Indices
-	array_index_t	*array_index = (array_index_t *) calloc(1, sizeof(array_index_t));
 
 	// Variables needed for control structures
 	unsigned int nstep = 0, save_count = 0;
@@ -67,7 +67,6 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		cudaStreamCreate(&stream[i]);
 	}
 
-	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceScheduleYield));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleUpdateIndexKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationScalarKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationVelocityKernel, cudaFuncCachePreferL1));
@@ -85,6 +84,8 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureTemperatureKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryTemperatureKernel, cudaFuncCachePreferL1));
 	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePropertiesKernel, cudaFuncCachePreferL1));
+
+	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceBlockingSync));
 
 	// Initialize Variables
 	printf("Initializing\n");
@@ -104,15 +105,13 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 	printf("Running Ininitalization Kernels\n\n");
 
 	if(bub_params->enabled){
-		if(update_bubble_indices()){
-		exit(EXIT_FAILURE);
-		}
+		if(update_bubble_indices(stop)){exit(EXIT_FAILURE);}
 	}
 
 	if(bub_params->enabled){
-		if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
-		if(synchronize_void_fraction(mixture_htod, f_g_pitch, stream)){exit(EXIT_FAILURE);}
+		if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stop)){exit(EXIT_FAILURE);}
 	}
+	if(synchronize_void_fraction(mixture_htod, f_g_pitch, stream, stop)){exit(EXIT_FAILURE);}
 
 	// Zero all counters
 
@@ -140,21 +139,22 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		tstepx	=	(*mix_params).dt + tstepx - s2;
 
 		cudaMemcpyToSymbol(tstep_c, &tstep, sizeof(double));
-		cudaThreadSynchronize();
+		cudaEventRecord(stop);
+		cudaEventSynchronize(stop);
 		checkCUDAError("Copy tstep");
 
 		// Store Bubble and Mixture, and predict void fraction
-		if(store_variables(mixture_htod, bubbles_htod, f_g_width, p_width, Work_width, f_g_pitch, Work_pitch, p_pitch, stream)){exit(EXIT_FAILURE);}
+		if(store_variables(mixture_htod, bubbles_htod, f_g_width, p_width, Work_width, f_g_pitch, Work_pitch, p_pitch, stream, stop)){exit(EXIT_FAILURE);}
 
 		// Update mixture velocity
-		if(calculate_velocity_field(vx_width, vy_width, rho_m_width, p0_width, c_sl_width)){exit(EXIT_FAILURE);}
+		if(calculate_velocity_field(vx_width, vy_width, rho_m_width, p0_width, c_sl_width, stop)){exit(EXIT_FAILURE);}
 
 		if(bub_params->enabled){
 			// Move the bubbles
-			if(bubble_motion(bubbles_htod, vx_width, vy_width)){exit(EXIT_FAILURE);}
+			if(bubble_motion(bubbles_htod, vx_width, vy_width, stop)){exit(EXIT_FAILURE);}
 		}
 
-		resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream);
+		resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream, stop);
 
 		loop = 0;
 
@@ -163,17 +163,16 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 				loop++;
 
 				// Find bubble pressure
-				if(interpolate_bubble_pressure(p0_width)){exit(EXIT_FAILURE);}
+				if(interpolate_bubble_pressure(p0_width, stop)){exit(EXIT_FAILURE);}
 
 				// Solve Rayleigh-Plesset Equations
-				//max_iter = solve_bubble_radii_host(bubbles_h, bubbles_htod, *bub_params, *mix_params);
-				max_iter = solve_bubble_radii(bubbles_htod);
+				max_iter = solve_bubble_radii(bubbles_htod, stop);
 
 				// Calculate Void Fraction
-				if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch)){exit(EXIT_FAILURE);}
+				if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stop)){exit(EXIT_FAILURE);}
 
 				// Calculate Pressure
-				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream);
+				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream, stop);
 
 				#ifdef _DEBUG_
 				printf("\033[A\033[2K");
@@ -184,9 +183,9 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		}
 
 		// Calculate mixture temperature
-		if(calculate_temperature(mixture_htod, bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width, Work_pitch, stream)){exit(EXIT_FAILURE);}
+		if(calculate_temperature(mixture_htod, bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width, Work_pitch, stream, stop)){exit(EXIT_FAILURE);}
 		// Calculate mixture properties
-		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width)){exit(EXIT_FAILURE);}
+		if(calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width, stop)){exit(EXIT_FAILURE);}
 
 		// Save data at intervals
 		if((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0)){
@@ -357,6 +356,7 @@ host_vector<solution_space> solve_bubbles(	grid_t	*grid_size,
 		cudaStreamDestroy(stream[i]);
 	}
 
+	cudaEventDestroy(stop);
 	return solution;
 } // solve_bubbles()
 

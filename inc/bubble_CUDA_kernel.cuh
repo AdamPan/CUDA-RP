@@ -643,10 +643,7 @@ __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, 
 
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
 //	Calculates the mixture pressure at the boundaries
-//
-
 __global__ void MixtureBoundaryPressureKernel(int p0_width){
 	const int index = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -986,18 +983,19 @@ __inline__ __host__ __device__ double smooth_delta_y(	const int 	pos,
 //	Wrapper Functions
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-int update_bubble_indices(){
+int update_bubble_indices(cudaEvent_t stop){
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
-
+	
 	BubbleUpdateIndexKernel <<< dimBubbleGrid, dimBubbleBlock >>> ();
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Failed to update bubble index");
 	return 0;
 }
 
-int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, int f_g_width, int f_g_pitch){
+int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, int f_g_width, int f_g_pitch, cudaEvent_t stop){
 	dim3 dimVFCBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimVFCGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE);
 
@@ -1010,21 +1008,23 @@ int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, in
 		VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock >>> (f_g_width);
 	}
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Failed to calculate void fraction");
 	return 0;
 }
 
-int synchronize_void_fraction(mixture_t mixture_htod, size_t f_g_pitch, cudaStream_t stream[]){
+int synchronize_void_fraction(mixture_t mixture_htod, size_t f_g_pitch, cudaStream_t stream[], cudaEvent_t stop){
 
 	CUDA_SAFE_CALL(cudaMemcpy2DAsync(mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[0]));
 	CUDA_SAFE_CALL(cudaMemcpy2DAsync(mixture_htod.f_gm, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[1]));
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	return 0;
 }
 
-int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width, int p_width, int Work_width, size_t f_g_pitch, size_t Work_pitch, size_t p_pitch, cudaStream_t stream[]){
+int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width, int p_width, int Work_width, size_t f_g_pitch, size_t Work_pitch, size_t p_pitch, cudaStream_t stream[], cudaEvent_t stop){
 	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
 	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
 			(j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
@@ -1052,11 +1052,12 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
 	// Store the predicted void fractions (fg)
 	CUDA_SAFE_CALL(cudaMemcpy2DAsync(	mixture_htod.f_g, f_g_pitch, mixture_htod.Work, Work_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice, stream[0]));
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	return 0;
 }
 
-int calculate_velocity_field(int vx_width, int vy_width, int rho_m_width, int p0_width, int c_sl_width){
+int calculate_velocity_field(int vx_width, int vy_width, int rho_m_width, int p0_width, int c_sl_width, cudaEvent_t stop){
 
 	dim3 dimVelocityBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
 	dim3 dimVelocityGrid((max(i2m, i2n) + TILE_BLOCK_WIDTH - 1) / (TILE_BLOCK_WIDTH),
@@ -1068,28 +1069,30 @@ int calculate_velocity_field(int vx_width, int vy_width, int rho_m_width, int p0
 	VelocityKernel <<< dimVelocityGrid, dimVelocityBlock >>> (vx_width, vy_width, rho_m_width, p0_width, c_sl_width);
 	VelocityBoundaryKernel <<< dimVBGrid, dimVBBlock >>> (vx_width, vy_width);
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Failed to calculate velocity");
 	return 0;
 }
 
-int bubble_motion(bubble_t bubbles_htod, int vx_width, int vy_width){
+int bubble_motion(bubble_t bubbles_htod, int vx_width, int vy_width, cudaEvent_t stop){
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
 	// Calculate each bubble's interpolated liquid velocity
 	BubbleInterpolationVelocityKernel <<< dimBubbleGrid, dimBubbleBlock >>> (vx_width, vy_width);
 	// Calculate (read: copy) the bubble velocity from liquid velocity
-	CUDA_SAFE_CALL(cudaMemcpy(bubbles_htod.v_B, bubbles_htod.v_L, sizeof(double2)*numBubbles, cudaMemcpyDeviceToDevice));
+	CUDA_SAFE_CALL(cudaMemcpyAsync(bubbles_htod.v_B, bubbles_htod.v_L, sizeof(double2)*numBubbles, cudaMemcpyDeviceToDevice));
 	// Move the bubbles and update the bubble midpoint/nodepoint indices
 	BubbleMotionKernel <<< dimBubbleGrid, dimBubbleBlock >>> ();
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Failed to move bubbles");
 	return 0;
 }
 
-double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, double P_inf, int p0_width, int p_width, int f_g_width, int vx_width, int vy_width, int rho_l_width, int c_sl_width, int Work_width, size_t Work_pitch, cudaStream_t stream[]){
+double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, double P_inf, int p0_width, int p_width, int f_g_width, int vx_width, int vy_width, int rho_l_width, int c_sl_width, int Work_width, size_t Work_pitch, cudaStream_t stream[], cudaEvent_t stop){
 	double resimax = 0.0;
 
 	dim3 dimMBPBlock(LINEAR_BLOCK_SIZE);
@@ -1108,7 +1111,8 @@ double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, dou
 	MixtureBoundaryPressureKernel <<< dimMBPGrid, dimMBPBlock, 0, stream[1] >>> (p0_width);
 
 	resimax = 0;
-	cudaStreamSynchronize(stream[0]);
+	cudaEventRecord(stop, stream[0]);
+	cudaEventSynchronize(stop);
 	for (int i = 0; i < i2m * j2m; i++){
 		if (resimax < mixture_h.Work[i]){
 		resimax = mixture_h.Work[i];
@@ -1116,23 +1120,25 @@ double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, dou
 	}
 	resimax /= P_inf;
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Failed to calculate pressure");
 	return resimax;
 }
 
-int interpolate_bubble_pressure(int p0_width){
+int interpolate_bubble_pressure(int p0_width, cudaEvent_t stop){
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
 	BubbleInterpolationScalarKernel <<< dimBubbleGrid, dimBubbleBlock >>> (p0_width);
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Failed to calculate PL for bubbles");
 
 	return 0;
 }
 
-int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int p_width, int rho_m_width, int C_pm_width, int Work_width, size_t Work_pitch, cudaStream_t stream[]){
+int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int p_width, int rho_m_width, int C_pm_width, int Work_width, size_t Work_pitch, cudaStream_t stream[], cudaEvent_t stop){
 	dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
 	dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
@@ -1151,30 +1157,33 @@ int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, int 
 		BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[1] >>> (Work_width);
 	}
 
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 
 	MixtureTemperatureKernel <<< dim2mGrid, dim2mBlock >>> (T_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width);
 
 	MixtureBoundaryTemperatureKernel <<< dimMBTGrid, dimMBTBlock >>> (T_width);
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Mixture boundary temperature");
 
 	return 0;
 }
 
-int calculate_properties(int rho_l_width, int rho_m_width, int c_sl_width, int C_pm_width, int f_g_width, int T_width){
+int calculate_properties(int rho_l_width, int rho_m_width, int c_sl_width, int C_pm_width, int f_g_width, int T_width, cudaEvent_t stop){
 	dim3 dim1mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
 	dim3 dim1mGrid((i1m + TILE_BLOCK_WIDTH - 1)/TILE_BLOCK_WIDTH,
 			(j1m + TILE_BLOCK_HEIGHT - 1)/TILE_BLOCK_HEIGHT);
 
 	MixturePropertiesKernel <<< dim1mGrid, dim1mBlock >>> (rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width);
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Mixture properties");
 
 	return 0;
 }
 
-int solve_bubble_radii(bubble_t bubbles_htod){
+int solve_bubble_radii(bubble_t bubbles_htod, cudaEvent_t stop){
 
 	const int block = BUB_RAD_MAX_THREADS;
 	dim3 dimBubbleBlock(block);
@@ -1183,7 +1192,8 @@ int solve_bubble_radii(bubble_t bubbles_htod){
 	thrust::device_vector<int> max_iter_d(numBubbles);
 
 	BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock>>> (thrust::raw_pointer_cast(&max_iter_d[0]));
-	cudaThreadSynchronize();
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
 	checkCUDAError("Bubble Radius");
 
 //	sort(bubbles_htod, max_iter_d);
