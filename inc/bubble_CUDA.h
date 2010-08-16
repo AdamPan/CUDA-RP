@@ -140,7 +140,7 @@ struct __align__(16) sim_params_t
 
 struct __align__(16) bub_params_t
 {
-	double	enabled;	// Switch for enabling bubbles
+	bool	enabled;	// Switch for enabling bubbles
 	double	fg0;		// Initial void fraction
 	double	R0, R03;	// Initial radius. We cache R0^3 as well to save ops
 	double	PL0;		// Initial liquid pressure
@@ -233,7 +233,7 @@ struct __align__(16) solution_space
 	double	*Q_B;		// Bubble heat
 };
 
-thrust::host_vector<solution_space> solve_bubbles(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
+thrust::host_vector<solution_space> solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
 
 int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 
