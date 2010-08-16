@@ -11,7 +11,6 @@ extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVo
 
 // Forward declarations
 int runSimulation(int argc, char **argv);
-int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim_params, debug_t *debug);
 
 int main (int argc, char **argv)
 {
@@ -21,7 +20,7 @@ int main (int argc, char **argv)
 	return (int)result;
 }
 
-int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim_params, plane_wave_t *plane_wave, debug_t *debug){
+int send_to_file(thrust::host_vector<solution_space> solution, array_index_t *array_index, grid_t *grid_size, sim_params_t *sim_params, plane_wave_t *plane_wave, debug_t *debug){
 	ofstream out_file;
 	stringstream out;
 	string out_dir = "./results/";
@@ -41,9 +40,9 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
-			for (int j = 0; j < j2m; j++){
-				for (int i = (plane_wave->cylindrical ? -i2m : 0); i < i2m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].f_g[i2m * j + abs(i)] << endl;
+			for (int j = 0; j <= grid_size->Y; j++){
+				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].f_g[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
 				}
 				out_file << endl;
 			}
@@ -61,9 +60,9 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
-			for (int j = 0; j < j1m; j++){
-				for (int i = (plane_wave->cylindrical ? -i1m : 0); i < i1m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].p0[i1m * j + abs(i)] << endl;
+			for (int j = 0; j <= grid_size->Y; j++){
+				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].p0[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m] << endl;
 				}
 				out_file << endl;
 			}
@@ -81,9 +80,9 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
-			for(int j = 0; j < j1m; j++){
-				for (int i = (plane_wave->cylindrical ? -i1m : 0); i < i1m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].p[i1m * j + abs(i)].x << endl;
+			for(int j = 0; j <= grid_size->Y; j++){
+				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].x << endl;
 				}
 				out_file << endl;
 			}
@@ -98,9 +97,9 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
-			for(int j = 0; j < j1m; j++){
-				for (int i = (plane_wave->cylindrical ? -i1m : 0); i < i1m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].p[i1m * j + abs(i)].y << endl;
+			for(int j = 0; j <= grid_size->Y; j++){
+				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].y << endl;
 				}
 				out_file << endl;
 			}
@@ -118,9 +117,9 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
-			for(int j = 0; j < j2m; j++){
-				for (int i = (plane_wave->cylindrical ? -i2m : 0); i < i2m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].T[i2m * j + abs(i)] << endl;
+			for(int j = 0; j <= grid_size->Y; j++){
+				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
 				}
 				out_file << endl;
 			}
@@ -138,9 +137,9 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
-			for (int j = 0; j < j2m; j++){
-				for (int i = (plane_wave->cylindrical ? -i2n : 0); i < i2n; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].vx[i2n * j + abs(i)] << endl;
+			for (int j = 0; j <= grid_size->Y; j++){
+				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].vx[i2n * (j - array_index->jsta2m) + abs(i) - array_index->ista2n] << endl;
 				}
 				out_file << endl;
 			}
@@ -155,9 +154,9 @@ int send_to_file(thrust::host_vector<solution_space> solution, sim_params_t *sim
 			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
 			out_file.open((out.str()).c_str());
 
-			for (int j = 0; j < j2n; j++){
-				for (int i = (plane_wave->cylindrical ? -i2m : 0); i < i2m; i++){
-					out_file << i << "\t" << j << "\t" << solution[k].vy[i2m * j + abs(i)] << endl;
+			for (int j = 0; j <= grid_size->Y; j++){
+				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].vy[i2m * (j - array_index->jsta2n) + abs(i) - array_index->ista2m] << endl;
 				}
 				out_file << endl;
 			}
@@ -313,10 +312,12 @@ int runSimulation(int argc, char **argv)
 		#endif
 	}
 
+	array_index_t *array_index = (array_index_t *) calloc(1, sizeof(array_index_t));
+
 	// Enter main simulation loop
 	if (ok)
 	{
-		solution = solve_bubbles(grid_size, PML, sim_params, bub_params, plane_wave, debug, argc, argv);
+		solution = solve_bubbles(array_index, grid_size, PML, sim_params, bub_params, plane_wave, debug, argc, argv);
 	}
 
 	// tell us the time
@@ -327,7 +328,7 @@ int runSimulation(int argc, char **argv)
 	runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
 	runtime.close();
 	// Output the solution
-	send_to_file(solution, sim_params, plane_wave, debug);
+	send_to_file(solution, array_index, grid_size, sim_params, plane_wave, debug);
 
 	return 0;
 }
