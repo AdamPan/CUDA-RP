@@ -1196,7 +1196,7 @@ int solve_bubble_radii(bubble_t bubbles_htod, cudaEvent_t stop){
 	cudaEventSynchronize(stop);
 	checkCUDAError("Bubble Radius");
 
-//	sort(bubbles_htod, max_iter_d);
+	//sort(bubbles_htod, max_iter_d);
 
 	return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
 }
@@ -1228,9 +1228,9 @@ void sort(bubble_t bubbles_htod, thrust::device_vector<int> max_iter_d){
 	thrust::device_ptr<double2> vB(bubbles_htod.v_B);
 	thrust::device_ptr<double2> vL(bubbles_htod.v_L);
 
-	thrust::device_vector<int2> temp_i2;
-	thrust::device_vector<double> temp_d;
-	thrust::device_vector<double2> temp_d2;
+	thrust::device_vector<int2> temp_i2(numBubbles);
+	thrust::device_vector<double> temp_d(numBubbles);
+	thrust::device_vector<double2> temp_d2(numBubbles);
 
 //	thrust::host_vector<double> temp_sort;
 
