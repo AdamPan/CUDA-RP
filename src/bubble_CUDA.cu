@@ -39,35 +39,11 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 						debug_t		*debug,
 						int argc,
 						char ** argv){
-	// Clear terminal for output
-	if(system("clear")){exit(EXIT_FAILURE);}
-
-	// Variable Declaration
-	// Storage variable for full solution (mixture and bubble data)
-	host_vector<solution_space> solution;
-
-//	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceBlockingSync));
-
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleUpdateIndexKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationScalarKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationVelocityKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleRadiusKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VoidFractionCylinderKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VoidFractionReverseLookupKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VFPredictionKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VelocityKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VelocityBoundaryKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePressureKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryPressureKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureKMKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleHeatKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureEnergyKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureTemperatureKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryTemperatureKernel, cudaFuncCachePreferL1));
-	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePropertiesKernel, cudaFuncCachePreferL1));
-
-	// Mixture Parameters
-	mix_params_t	*mix_params = (mix_params_t*) calloc(1, sizeof(mix_params_t));
+	#ifdef _DEBUG_
+		// Clear terminal for output
+		if(system("clear")){exit(EXIT_FAILURE);}
+	#endif
+	setCUDAflags();
 
 	// Variables needed for control structures
 	unsigned int nstep = 0, save_count = 0;
@@ -76,56 +52,51 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 	double resimax;
 	double s1, s2;
 
-	int max_iter;
+	#ifdef _DEBUG_
+		int max_iter;
+	#endif
 
 	int num_streams = 3;
 	cudaStream_t stream[num_streams];
 	for (int i = 0; i < num_streams; i++){cudaStreamCreate(&stream[i]);}
-	cudaEvent_t stop[3];
+	cudaEvent_t stop[num_streams];
 	for (int i = 0; i < num_streams; i++){cudaEventCreateWithFlags(&stop[i], cudaEventBlockingSync);}
 
+	// Variable Declaration
+	// Storage variable for full solution (mixture and bubble data)
+	host_vector<solution_space> solution;
+
+	// Mixture Parameters
+	mix_params_t	*mix_params = (mix_params_t*) calloc(1, sizeof(mix_params_t));
+
 	// Initialize Variables
-	printf("Initializing\n");
+	printf("Computing Simulation Variables...");
 	if(initialize_variables(grid_size, PML, sim_params, plane_wave, array_index, mix_params, bub_params)){
 		exit(EXIT_FAILURE);
 	}
+	printf("\tdone\n\n");
 
 	// Allocate memory on the device
-	printf("Allocating Memory\n\n");
+	printf("Allocating Memory...");
 	if(initialize_CUDA_variables(grid_size, PML, sim_params, plane_wave,array_index, mix_params, bub_params)){
 		exit(EXIT_FAILURE);
 	}
-
+	printf("\t\t\tdone\n\n");
 
 	// Initialization kernels
-
-	printf("Running Ininitalization Kernels\n\n");
-
-	if(bub_params->enabled){
-		if(update_bubble_indices(stream, stop)){exit(EXIT_FAILURE);}
-	}
-
-	if(bub_params->enabled){
-		if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stream, stop)){exit(EXIT_FAILURE);}
-	}
+	printf("Running Initialization Kernels...");
+	// Update Bubble Index
+	if(bub_params->enabled && update_bubble_indices(stream, stop)){exit(EXIT_FAILURE);}
+	// Calculate the initial state void fraction
+	if(bub_params->enabled && calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stream, stop)){exit(EXIT_FAILURE);}
+	// Set f_gn and f_gm to f_g
 	if(synchronize_void_fraction(mixture_htod, f_g_pitch, stream, stop)){exit(EXIT_FAILURE);}
-
-	// Zero all counters
-
-	nstep = 0;
-	tstep = 0.0;
-	tstepx = 0.0;
-	save_count = 0;
-
-	// Stop for the user to check params
-
-	printf("Simulation ready! Press any key to continue\n");
-	if(system("clear")){exit(EXIT_FAILURE);}
+	printf("\tdone\n\n");
 
 	/************************
 	 * Main simulation loop	*
 	 ************************/
-	printf("Running the simulation\n\n");
+	printf("Running the simulation\t\t");
 	do{
 		nstep++;
 
@@ -134,9 +105,8 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 		tstep	=	tstep + (*mix_params).dt + tstepx;
 		s2	=	tstep - s1;
 		tstepx	=	(*mix_params).dt + tstepx - s2;
-
 		cudaMemcpyToSymbol(tstep_c, &tstep, sizeof(double));
-		checkCUDAError("Copy tstep");
+		checkCUDAError("Set timestamp");
 
 		// Store Bubble and Mixture, and predict void fraction
 		if(store_variables(mixture_htod, bubbles_htod, f_g_width, p_width, Work_width, f_g_pitch, Work_pitch, p_pitch, stream, stop)){exit(EXIT_FAILURE);}
@@ -144,16 +114,15 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 		// Update mixture velocity
 		if(calculate_velocity_field(vx_width, vy_width, rho_m_width, p0_width, c_sl_width, stream, stop)){exit(EXIT_FAILURE);}
 
-		if(bub_params->enabled){
-			// Move the bubbles
-			if(bubble_motion(bubbles_htod, vx_width, vy_width, stream, stop)){exit(EXIT_FAILURE);}
-		}
+		// Move the bubbles
+		if(bub_params->enabled && bubble_motion(bubbles_htod, vx_width, vy_width, stream, stop)){exit(EXIT_FAILURE);}
 
+		// Calculate pressure
 		resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream, stop);
 
-		loop = 0;
-
+		// Subloop for solving Rayleigh Plesset equations
 		if(bub_params->enabled){
+			loop = 0;
 			while (resimax > 1.0e-7f){
 				loop++;
 
@@ -161,7 +130,11 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 				if(interpolate_bubble_pressure(p0_width, stream, stop)){exit(EXIT_FAILURE);}
 
 				// Solve Rayleigh-Plesset Equations
-				max_iter = solve_bubble_radii(bubbles_htod, stream, stop);
+				#ifdef _DEBUG_
+					max_iter = solve_bubble_radii(bubbles_htod, stream, stop);
+				#else
+					if(solve_bubble_radii(bubbles_htod, stream, stop)){exit(EXIT_FAILURE);}
+				#endif
 
 				// Calculate Void Fraction
 				if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stream, stop)){exit(EXIT_FAILURE);}
@@ -170,8 +143,8 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 				resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream, stop);
 
 				#ifdef _DEBUG_
-				//printf("\033[A\033[2K");
-				printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n", nstep, loop, resimax, max_iter);
+					printf("\033[A\033[2K");
+					printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n", nstep, loop, resimax, max_iter);
 				#endif
 				if (loop == 10000) {printf("Premature Termination at nstep %i, subloop %i\n\n", nstep, loop); break;}
 			}
@@ -203,139 +176,150 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 			if (debug->bubbles)cudaMemcpy(	solution[save_count].pos, bubbles_htod.pos, sizeof(double2)*numBubbles, cudaMemcpyDeviceToHost);
 			if (debug->bubbles)cudaMemcpy(	solution[save_count].R_t, bubbles_htod.R_t, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
 			if (debug->bubbles)cudaMemcpy(	solution[save_count].PG_p, bubbles_htod.PG_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
-		#ifdef _DEBUG_
-			if(system("clear")){exit(EXIT_FAILURE);}
-		#endif
-			printf("Simulation step : %i\ttstep : %4.2E\tdt : %4.2E\n",
-					nstep,
-					tstep,
-					mix_params->dt);
-		#ifdef _DEBUG_
-			double a = debug->display - 1;
-			if(debug->bubbles){
-				for (double i = 0; i <= numBubbles - 1; i += (numBubbles-1)/a){
-				printf("Bubble %i has position (%4.2E, %4.2E), radius %4.2E.\n",
-					(int)i,
-					solution[save_count].pos[(int)i].x,
-					solution[save_count].pos[(int)i].y,
-					solution[save_count].R_t[(int)i]);
-				}
+			#ifdef _DEBUG_
+				if(system("clear")){exit(EXIT_FAILURE);}
+			#else
+				printf("\r");
+			#endif
+			if (sim_params->NSTEPMAX != 0){
+				printf("Running the simulation...\t\tnstep : %5i / %i", nstep, sim_params->NSTEPMAX);
 			}
-			printf("resimax = %4.2E\n\n",resimax);
-			if(debug->fg){
-				printf("fg Grid\n");
-				for (double j = 0; j <= j2m - 1; j+= (j2m-1)/a){
-				if (!j){
-				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-				printf("\t(%i)\t",(int)i);
-				}
-				printf("\n");
-				}
-				printf("(%i)\t",(int)j);
-				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-				printf("%4.2E\t", solution[save_count].f_g[i2m * (int)j + (int)i]);
-				}
-				printf("\n");
-				}
+			else if (sim_params->TSTEPMAX !=0){
+				printf("Running the simulation...\t\ttstep : %4.2E / %4.2E", tstep, sim_params->TSTEPMAX);
 			}
-			if(debug->p0){
-				printf("p0 Grid\n");
-				for (double j = 0; j <= j1m - 1; j += (j1m - 1)/a){
-				if (!j){
-				for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-				printf("\t(%i)\t",(int)i);
-				}
+
+			#ifdef _DEBUG_
 				printf("\n");
+			#else
+				fflush(stdout);
+			#endif
+			
+			#ifdef _DEBUG_
+				double a = debug->display - 1;
+				if(debug->bubbles){
+					for (double i = 0; i <= numBubbles - 1; i += (numBubbles-1)/a){
+					printf("Bubble %i has position (%4.2E, %4.2E), radius %4.2E.\n",
+						(int)i,
+						solution[save_count].pos[(int)i].x,
+						solution[save_count].pos[(int)i].y,
+						solution[save_count].R_t[(int)i]);
+					}
 				}
-				printf("(%i)\t",(int)j);
-				for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-				printf("%4.2E\t", solution[save_count].p0[i1m * (int)j + (int)i]);
+				printf("resimax = %4.2E\n\n",resimax);
+				if(debug->fg){
+					printf("fg Grid\n");
+					for (double j = 0; j <= j2m - 1; j+= (j2m-1)/a){
+					if (!j){
+					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
+					printf("\t(%i)\t",(int)i);
+					}
+					printf("\n");
+					}
+					printf("(%i)\t",(int)j);
+					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
+					printf("%4.2E\t", solution[save_count].f_g[i2m * (int)j + (int)i]);
+					}
+					printf("\n");
+					}
 				}
-				printf("\n");
+				if(debug->p0){
+					printf("p0 Grid\n");
+					for (double j = 0; j <= j1m - 1; j += (j1m - 1)/a){
+					if (!j){
+					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
+					printf("\t(%i)\t",(int)i);
+					}
+					printf("\n");
+					}
+					printf("(%i)\t",(int)j);
+					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
+					printf("%4.2E\t", solution[save_count].p0[i1m * (int)j + (int)i]);
+					}
+					printf("\n");
+					}
 				}
-			}
-			if(debug->pxy){
-				printf("px Grid\n");
-				for (double j = 0; j <= j1m - 1; j += (j1m - 1)/a){
-				if (!j){
-				for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-				printf("\t(%i)\t",(int)i);
+				if(debug->pxy){
+					printf("px Grid\n");
+					for (double j = 0; j <= j1m - 1; j += (j1m - 1)/a){
+					if (!j){
+					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
+					printf("\t(%i)\t",(int)i);
+					}
+					printf("\n");
+					}
+					printf("(%i)\t",(int)j);
+					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
+					printf("%4.2E\t", solution[save_count].p[i1m * (int)j + (int)i].x);
+					}
+					printf("\n");
+					}
 				}
-				printf("\n");
+				if(debug->pxy){
+					printf("py Grid\n");
+					for (double j = 0; j <= j1m - 1; j += (j1m - 1)/a){
+					if (!j){
+					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
+					printf("\t(%i)\t",(int)i);
+					}
+					printf("\n");
+					}
+					printf("(%i)\t",(int)j);
+					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
+					printf("%4.2E\t", solution[save_count].p[i1m * (int)j + (int)i].y);
+					}
+					printf("\n");
+					}
 				}
-				printf("(%i)\t",(int)j);
-				for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-				printf("%4.2E\t", solution[save_count].p[i1m * (int)j + (int)i].x);
+				if(debug->T){
+					printf("T Grid\n");
+					for (double j = 0; j <= j2m - 1; j += (j2m - 1)/a){
+					if (!j){
+					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
+					printf("\t(%i)\t",(int)i);
+					}
+					printf("\n");
+					}
+					printf("(%i)\t",(int)j);
+					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
+					printf("%4.2E\t", solution[save_count].T[i2m * (int)j + (int)i]);
+					}
+					printf("\n");
+					}
 				}
-				printf("\n");
+				if(debug->vxy){
+					printf("vx Grid\n");
+					for (double j = 0; j <= j2m - 1; j += (j2m - 1)/a){
+					if (!j){
+					for (double i = 0; i <= i2n - 1; i += (i2n - 1)/a){
+					printf("\t(%i)\t",(int)i);
+					}
+					printf("\n");
+					}
+					printf("(%i)\t",(int)j);
+					for (double i = 0; i <= i2n - 1; i += (i2n - 1)/a){
+					printf("%4.2E\t", solution[save_count].vx[i2n * (int)j + (int)i]);
+					}
+					printf("\n");
+					}
 				}
-			}
-			if(debug->pxy){
-				printf("py Grid\n");
-				for (double j = 0; j <= j1m - 1; j += (j1m - 1)/a){
-				if (!j){
-				for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-				printf("\t(%i)\t",(int)i);
+				if(debug->vxy){
+					printf("vy Grid\n");
+					for (double j = 0; j <= j2n - 1; j += (j2n - 1)/a){
+					if (!j){
+					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
+					printf("\t(%i)\t",(int)i);
+					}
+					printf("\n");
+					}
+					printf("(%i)\t",(int)j);
+					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
+					printf("%4.2E\t", solution[save_count].vy[i2m * (int)j + (int)i]);
+					}
+					printf("\n");
+					}
 				}
-				printf("\n");
-				}
-				printf("(%i)\t",(int)j);
-				for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-				printf("%4.2E\t", solution[save_count].p[i1m * (int)j + (int)i].y);
-				}
-				printf("\n");
-				}
-			}
-			if(debug->T){
-				printf("T Grid\n");
-				for (double j = 0; j <= j2m - 1; j += (j2m - 1)/a){
-				if (!j){
-				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-				printf("\t(%i)\t",(int)i);
-				}
-				printf("\n");
-				}
-				printf("(%i)\t",(int)j);
-				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-				printf("%4.2E\t", solution[save_count].T[i2m * (int)j + (int)i]);
-				}
-				printf("\n");
-				}
-			}
-			if(debug->vxy){
-				printf("vx Grid\n");
-				for (double j = 0; j <= j2m - 1; j += (j2m - 1)/a){
-				if (!j){
-				for (double i = 0; i <= i2n - 1; i += (i2n - 1)/a){
-				printf("\t(%i)\t",(int)i);
-				}
-				printf("\n");
-				}
-				printf("(%i)\t",(int)j);
-				for (double i = 0; i <= i2n - 1; i += (i2n - 1)/a){
-				printf("%4.2E\t", solution[save_count].vx[i2n * (int)j + (int)i]);
-				}
-				printf("\n");
-				}
-			}
-			if(debug->vxy){
-				printf("vy Grid\n");
-				for (double j = 0; j <= j2n - 1; j += (j2n - 1)/a){
-				if (!j){
-				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-				printf("\t(%i)\t",(int)i);
-				}
-				printf("\n");
-				}
-				printf("(%i)\t",(int)j);
-				for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-				printf("%4.2E\t", solution[save_count].vy[i2m * (int)j + (int)i]);
-				}
-				printf("\n");
-				}
-			}
-			printf("\n\n\n");
-		#endif
+				printf("\n\n\n");
+			#endif
 			save_count++;
 		}
 	}while(
@@ -343,6 +327,12 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 	||
 	(((*sim_params).TSTEPMAX != 0) && (tstep < (*sim_params).TSTEPMAX)));
 
+	#ifndef _DEBUG_
+		printf("\r");
+	#endif
+	printf("Running the simulation...\t\tdone\n\n");
+
+	printf("Cleaning up...");
 	// Destroy the variables to prevent further errors
 	if(destroy_CUDA_variables(bub_params)){
 		exit(EXIT_FAILURE);
@@ -350,6 +340,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 	for (int i = 0; i < num_streams; i++){cudaStreamDestroy(stream[i]);}
 
 	for (int i = 0; i < num_streams; i++){cudaEventDestroy(stop[i]);}
+	printf("\tdone\n\n");
 	return solution;
 } // solve_bubbles()
 
@@ -1002,7 +993,9 @@ mixture_t init_mix_array(mix_params_t * mix_params, array_index_t array_index){
 		mix.f_g[i] = 0.0;//(double) i/m2Vol;
 		mix.Work[i] = 0;
 	}
-	printf("Mixture grid generated.\n\n");
+	#ifdef _DEBUG_
+		printf("Mixture grid generated.\n\n");
+	#endif
 	return mix;
 } // init_mix_array()
 
@@ -1012,9 +1005,9 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 	bubble_t_aos init_bubble;
 	bubble_t ret_bub;
 
-#ifdef _DEBUG_
-	printf("Baking bubbles...\n");
-#endif
+	#ifdef _DEBUG_
+		printf("Baking bubbles...\n");
+	#endif
 	for (int i = (*array_index).istam; i <= (*array_index).iendm; i++){
 		pos.x = ( (double)i - 0.5) * (*grid_size).dx;
 		for (int j = (*array_index).jstam; j <= (*array_index).jendm; j++){
@@ -1116,9 +1109,9 @@ bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, arra
 		ret_bub.v_B[i]		= bub[i].v_B;
 		ret_bub.v_L[i]		= bub[i].v_L;
 	}
-#ifdef _DEBUG_
-	printf("%i bubbles initialized.\n\n", (*bub_params).npi);
-#endif // _DEBUG_
+	#ifdef _DEBUG_
+		printf("%i bubbles initialized.\n\n", (*bub_params).npi);
+	#endif
 	return ret_bub;
 }
 
@@ -1165,9 +1158,9 @@ sigma_t init_sigma (	const PML_t PML,
 					const sim_params_t sim_params,
 					const grid_t grid_size,
 					const array_index_t array_index){
-#ifdef _DEBUG_
-	printf("Generating a perfectly matched layer.\n");
-#endif
+	#ifdef _DEBUG_
+		printf("Generating a perfectly matched layer.\n");
+	#endif
 	sigma_t sigma;
 
 	sigma.mx = (double*) calloc((array_index.iend1m - array_index.ista1m + 1), sizeof(double));
@@ -1225,19 +1218,19 @@ sigma_t init_sigma (	const PML_t PML,
 		if (istam <= npml){
 			itmps = max(istam, ms);
 			itmpe = min(iendm, npml);
-		#ifdef _DEBUG_
-			printf("Sigma mx :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma mx :\t");
+			#endif
 			for (int i = itmps; i <= itmpe; i++){
 				n = npml - i + 1;
 				sigma.mx[i - ista1m]	= sigma_x_max * pow(((double)n-0.5)/((double)npml), order);
-			#ifdef _DEBUG_
-				printf("%4.2E\t",sigma.mx[i-ista1m]);
-			#endif
+				#ifdef _DEBUG_
+					printf("%4.2E\t",sigma.mx[i-ista1m]);
+				#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
 	if (PML.X1){
@@ -1246,21 +1239,21 @@ sigma_t init_sigma (	const PML_t PML,
 		if (nx - npml + 1 <= iendm){
 			itmps = max(istam, nx - npml + 1);
 			itmpe = min(iendm, nx + me);
-		#ifdef _DEBUG_
-			printf("Sigma mx :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma mx :\t");
+			#endif
 			for (int i = itmps; i <= itmpe; i++){
 				n = i - nx + npml;
 				sigma.mx[i - ista1m]	= sigma_x_max * pow(	((double)n-0.5)
 										/((double)npml),
 										order);
-			#ifdef _DEBUG_
-				printf("%4.2E\t",sigma.mx[i-ista1m]);
-			#endif
+				#ifdef _DEBUG_
+					printf("%4.2E\t",sigma.mx[i-ista1m]);
+				#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
 	if (PML.Y0){
@@ -1269,21 +1262,21 @@ sigma_t init_sigma (	const PML_t PML,
 		if (jstam <= npml){
 			jtmps = max(jstam, ms);
 			jtmpe = min(jendm, npml);
-		#ifdef _DEBUG_
-			printf("Sigma my :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma my :\t");
+			#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = npml - j + 1;
 				sigma.my[j - jsta1m]	= sigma_y_max * pow(	((double)n-0.5)
 										/((double)npml),
 										order);
-				#ifdef _DEBUG_
-					printf("%4.2E\t",sigma.my[j-jsta1m]);
-				#endif
+					#ifdef _DEBUG_
+						printf("%4.2E\t",sigma.my[j-jsta1m]);
+					#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
 	if (PML.Y1){
@@ -1292,21 +1285,21 @@ sigma_t init_sigma (	const PML_t PML,
 		if (ny - npml + 1 <= jendm){
 			jtmps = max(jstam, ny - npml + 1);
 			jtmpe = min(jendm, ny + me);
-		#ifdef _DEBUG_
-			printf("Sigma my :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma my :\t");
+			#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = j - ny + npml;
 				sigma.my[j - jsta1m]	= sigma_y_max * pow(	((double)n-0.5)
 										/((double)npml),
 										order);
-				#ifdef _DEBUG_
-					printf("%4.2E\t",sigma.my[j-jsta1m]);
-				#endif
+					#ifdef _DEBUG_
+						printf("%4.2E\t",sigma.my[j-jsta1m]);
+					#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
 	if(PML.X0){
@@ -1315,21 +1308,21 @@ sigma_t init_sigma (	const PML_t PML,
 		if (istan <= npml - 1){
 			itmps = max(istan, ms + ns);
 			itmpe = min(iendn, npml - 1);
-		#ifdef _DEBUG_
-			printf("Sigma nx :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma nx :\t");
+			#endif
 			for (int i = itmps; i <= itmpe; i++){
 				n = npml - i;
 				sigma.nx[i - ista2n]	= sigma_x_max * pow(	((double)n)
 										/((double)npml),
 										order);
-				#ifdef _DEBUG_
-					printf("%4.2E\t",sigma.nx[i-ista2n]);
-				#endif
+					#ifdef _DEBUG_
+						printf("%4.2E\t",sigma.nx[i-ista2n]);
+					#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
 	if (PML.X1){
@@ -1338,21 +1331,21 @@ sigma_t init_sigma (	const PML_t PML,
 		if (nx - npml + 1 <= iendn){
 			itmps = max(istan, nx - npml + 1);
 			itmpe = min(iendn, nx + me + ne + 1);
-		#ifdef _DEBUG_
-			printf("Sigma nx :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma nx :\t");
+			#endif
 			for (int i = itmps; i <= itmpe; i++){
 				n = i - nx + npml;
 				sigma.nx[i - ista2n]	= sigma_x_max * pow(	((double)n)
 										/((double)npml),
 										order);
-				#ifdef _DEBUG_
-					printf("%4.2E\t",sigma.nx[i-ista2n]);
-				#endif
+					#ifdef _DEBUG_
+						printf("%4.2E\t",sigma.nx[i-ista2n]);
+					#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
 	if (PML.Y0){
@@ -1361,21 +1354,21 @@ sigma_t init_sigma (	const PML_t PML,
 		if (jstan <= npml - 1){
 			jtmps = max(jstan, ms + ns);
 			jtmpe = min(jendn, npml - 1);
-		#ifdef _DEBUG_
-			printf("Sigma ny :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma ny :\t");
+			#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = npml - j;
 				sigma.ny[j - jsta2n]	= sigma_y_max * pow(	((double)n)
 										/((double)npml),
 										order);
-				#ifdef _DEBUG_
-					printf("%4.2E\t",sigma.ny[j-jsta2n]);
-				#endif
+					#ifdef _DEBUG_
+						printf("%4.2E\t",sigma.ny[j-jsta2n]);
+					#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
 	if (PML.Y1){
@@ -1384,24 +1377,26 @@ sigma_t init_sigma (	const PML_t PML,
 		if (ny - npml + 1 <= jendn){
 			jtmps = max(jstan, ny - npml + 1);
 			jtmpe = min(jendn, ny + me + ne + 1);
-		#ifdef _DEBUG_
-			printf("Sigma ny :\t");
-		#endif
+			#ifdef _DEBUG_
+				printf("Sigma ny :\t");
+			#endif
 			for (int j = jtmps; j <= jtmpe; j++){
 				n = j - ny + npml;
 				sigma.ny[j - jsta2n]	= sigma_y_max * pow(	((double)n)
 										/((double)npml),
 										order);
-				#ifdef _DEBUG_
-					printf("%4.2E\t",sigma.ny[j-jsta2n]);
-				#endif
+					#ifdef _DEBUG_
+						printf("%4.2E\t",sigma.ny[j-jsta2n]);
+					#endif
 			}
-		#ifdef _DEBUG_
-			printf("\n");
-		#endif
+			#ifdef _DEBUG_
+				printf("\n");
+			#endif
 		}
 	}
-	printf("PML generated.\n\n");
+	#ifdef _DEBUG_
+		printf("PML generated.\n\n");
+	#endif
 	return sigma;
 } // init_sigma()
 
@@ -1413,6 +1408,27 @@ void killSwitch(const bool *ok_d){
 		exit(EXIT_FAILURE);
 	}
 } // killSwitch()
+
+void setCUDAflags(){
+//	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceBlockingSync));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleUpdateIndexKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationScalarKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleInterpolationVelocityKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleRadiusKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VoidFractionCylinderKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VoidFractionReverseLookupKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VFPredictionKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VelocityKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(VelocityBoundaryKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePressureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryPressureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureKMKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(BubbleHeatKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureEnergyKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureTemperatureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixtureBoundaryTemperatureKernel, cudaFuncCachePreferL1));
+	CUDA_SAFE_CALL(cudaFuncSetCacheConfig(MixturePropertiesKernel, cudaFuncCachePreferL1));
+}
 
 // Checks for any CUDA errors
 void checkCUDAError(	const char *msg){

@@ -298,7 +298,6 @@ int runSimulation(int argc, char **argv)
 		plane_wave->Focused_V	= (bool)   cf.Value("Plane Wave", "Focused Wave (V)");
 		plane_wave->Focused_P	= (bool)   cf.Value("Plane Wave", "Focused Wave (P)");
 
-		#ifdef _DEBUG_
 		// Load Debug Parameters
 		debug		= (debug_t*) malloc(sizeof(debug_t));
 		debug->display	= (int)	cf.Value("Debug", "Display Lines");
@@ -309,7 +308,6 @@ int runSimulation(int argc, char **argv)
 		debug->vxy	= (bool)cf.Value("Debug", "Show v");
 		debug->bubbles	= (bool)cf.Value("Debug", "Show Bubbles");
 		if(bub_params->enabled == 0){debug->bubbles = 0;}
-		#endif
 	}
 
 	array_index_t *array_index = (array_index_t *) calloc(1, sizeof(array_index_t));

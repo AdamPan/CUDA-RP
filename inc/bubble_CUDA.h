@@ -41,7 +41,7 @@
 #define FALSE 0
 
 #define _CYLINDRICAL_
-#define _DEBUG_
+//#define _DEBUG_
 
 #define EPSILON 0.01
 
@@ -134,7 +134,7 @@ struct __align__(16) sim_params_t
 	int	order;		// Order of FDTD
 	int	deltaBand;	// Bandwidth of smooth delta function
 	unsigned int	NSTEPMAX;	// Maximum number of steps in simulation
-	int	TSTEPMAX;		// Maximum simulation time
+	double	TSTEPMAX;		// Maximum simulation time
 	int	DATA_SAVE;	// Interval to save images
 };
 
@@ -259,6 +259,7 @@ mixture_t init_mix_array(mix_params_t *mix_params, array_index_t array_index);
 bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, array_index_t *array_index, grid_t *grid_size, plane_wave_t *plane_wave);
 bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size, plane_wave_t plane_wave);
 
+void setCUDAflags();
 void checkCUDAError(const char* msg);
 #endif
 
