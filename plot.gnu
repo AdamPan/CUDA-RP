@@ -1,8 +1,12 @@
-set term png size 1600, 1600 
+set term png enhanced size XRES, YRES
 set output '../images/OUTPUTFILE.png'
+set lmargin 0
+set tmargin 0
+set rmargin 0
+set bmargin 0
 set palette gray
-#set xrange [0 : 300]
-#set yrange [0 : 600]
+set xrange [-XBOUND : XBOUND]
+set yrange [0 : YBOUND]
 set size ratio 1
-#set title 'OUTPUTFILE'
+set title 'TITLE'
 p 'INPUTFILE.txt' w image

@@ -25,8 +25,16 @@ else
 fi
 
 for i in $file_numbers ; do
+   XRES=`grep -w X confs/$1_$i.txt | sed "s/X//g" | sed "s/=//" | sed "s/[\t]*//"`
+   YRES=`grep -w Y confs/$1_$i.txt | sed "s/Y//g" | sed "s/=//" | sed "s/[\t]*//"`
+   XBOUND=`grep -w LX confs/$1_$i.txt | sed "s/LX//g" | sed "s/=//" | sed "s/[\t]*//"`
+   YBOUND=`grep -w LY confs/$1_$i.txt | sed "s/LY//g" | sed "s/=//" | sed "s/[\t]*//"`
+
+   XRES=$(((XRES*2 + 1) * 2))
+   YRES=$(((YRES + 1) * 2))
+
    ./bin/linux/release/bubbles confs/$1_$i.txt
-   sh plot_results.sh
+   sh plot_results.sh $XBOUND $YBOUND $XRES $YRES
 
    mv results $target_dir_0/$target_dir_1/$target_dir_2/results_$i
    mv images $target_dir_0/$target_dir_1/$target_dir_2/images_$i
