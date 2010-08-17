@@ -32,4 +32,8 @@ public:
 	Chameleon const& Value(std::string const& section, std::string const& entry, std::string const& value);
 };
 
+extern "C" int initialize_folders();
+
+extern "C" void *save_step(void *threadArg);
+
 #endif

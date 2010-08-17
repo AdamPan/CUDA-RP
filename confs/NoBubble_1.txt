@@ -49,7 +49,7 @@ K0			=	26.2e-3
 
 [Debug]
 Display Lines	=	7
-Show fg		=	1
+Show fg		=	0
 Show T		=	1
 Show p		=	1
 Show p components	=	0

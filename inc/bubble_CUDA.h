@@ -219,21 +219,19 @@ struct __align__(16) bubble_t_aos
 	double2	v_L;	// velocity of liquid around bubble
 };
 
-struct __align__(16) solution_space
+struct output_plan_t
 {
-	double	*T;			// Temperature
-	double	*p0;			// Magnitude of pressure
-	double2	*p;		// Pressure components
-	double	*vx, *vy;		// Velocity
-	double	*f_g;	// Void fraction
-
-	double2	*pos;		// position
-	double	*R_t;		// radius at mixture timestep
-	double	*PG_p;		// gas pressure
-	double	*Q_B;		// Bubble heat
+	mixture_t mixture_h;
+	bubble_t bubbles_h;
+	int step;
+	array_index_t *array_index;
+	grid_t *grid_size;
+	sim_params_t *sim_params;
+	plane_wave_t *plane_wave;
+	debug_t *debug;
 };
 
-thrust::host_vector<solution_space> solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
+int solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
 
 int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 

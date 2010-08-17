@@ -17,10 +17,10 @@ int main (int argc, char **argv)
 	// Execute
 	int result = runSimulation(argc, argv);
 
-	return (int)result;
+	return result;
 }
 
-int send_to_file(thrust::host_vector<solution_space> solution, array_index_t *array_index, grid_t *grid_size, sim_params_t *sim_params, plane_wave_t *plane_wave, debug_t *debug){
+extern "C" int initialize_folders(){
 	ofstream out_file;
 	stringstream out;
 	string out_dir = "./results/";
@@ -28,183 +28,154 @@ int send_to_file(thrust::host_vector<solution_space> solution, array_index_t *ar
 	string make_dir = "mkdir results";
 	if(system(clear_dir.c_str())){exit(EXIT_FAILURE);}
 	if(system(make_dir.c_str())){exit(EXIT_FAILURE);}
-	if(system("clear")){exit(EXIT_FAILURE);}
+	return 0;
+}
 
-	cout << "Simulation complete!" << endl << endl;
-	cout << "Saving results to folder: " << out_dir << endl << endl;
+extern "C" void *save_step(void *threadArg){
+	struct output_plan_t plan;
+	plan = *((struct output_plan_t*) threadArg);
+	mixture_t mixture_h = plan.mixture_h;
+	bubble_t bubbles_h = plan.bubbles_h;
+	int step = plan.step;
+	array_index_t *array_index = plan.array_index;
+	grid_t *grid_size = plan.grid_size;
+	sim_params_t *sim_params = plan.sim_params;
+	plane_wave_t *plane_wave = plan.plane_wave;
+	debug_t *debug = plan.debug;
 
+	ofstream out_file;
+	stringstream out;
+	string out_dir = "./results/";
 	if (debug->fg){
-		for (int k = 0; k < solution.size(); k++){
-			out.str("");
-			out << out_dir << "fg_step_";
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out.str("");
+		out << out_dir << "fg_step_";
+		out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
 
-			for (int j = 0; j <= grid_size->Y; j++){
-				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].f_g[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
-				}
-				out_file << endl;
+		for (int j = 0; j <= grid_size->Y; j++){
+			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.f_g[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
 			}
-			out_file.close();
-			cout << "\r" << "Saving FG : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
+			out_file << endl;
 		}
-		cout << endl;
+		out_file.close();
 	}
 
 	if (debug->p0){
-		for (int k = 0; k < solution.size(); k++){
-			out.str("");
-			out << out_dir << "p0_step_";
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out.str("");
+		out << out_dir << "p0_step_";
+		out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
 
-			for (int j = 0; j <= grid_size->Y; j++){
-				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].p0[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m] << endl;
-				}
-				out_file << endl;
+		for (int j = 0; j <= grid_size->Y; j++){
+			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p0[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m] << endl;
 			}
-			out_file.close();
-			cout << "\r" << "Saving P0 : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
+			out_file << endl;
 		}
-		cout << endl;
+		out_file.close();
 	}
 
 	if (debug->pxy){
-		for (int k = 0; k < solution.size(); k++){
-			out.str("");
-			out << out_dir << "px_step_";
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out.str("");
+		out << out_dir << "px_step_";
+		out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
 
-			for(int j = 0; j <= grid_size->Y; j++){
-				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].x << endl;
-				}
-				out_file << endl;
+		for(int j = 0; j <= grid_size->Y; j++){
+			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].x << endl;
 			}
-			out_file.close();
-			cout << "\r" << "Saving PX : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
+			out_file << endl;
 		}
-		cout << endl;
-		for (int k = 0; k < solution.size(); k++){
-			out.str("");
-			out << out_dir << "py_step_";
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out_file.close();
+		
+		out.str("");
+		out << out_dir << "py_step_";
+		out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
 
-			for(int j = 0; j <= grid_size->Y; j++){
-				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].y << endl;
-				}
-				out_file << endl;
+		for(int j = 0; j <= grid_size->Y; j++){
+			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].y << endl;
 			}
-			out_file.close();
-			cout << "\r" << "Saving PY : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
+			out_file << endl;
 		}
-		cout << endl;
+		out_file.close();
 	}
 
 	if (debug->T){
-		for (int k = 0; k < solution.size(); k++){
-			out.str("");
-			out << out_dir << "T_step_";
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out.str("");
+		out << out_dir << "T_step_";
+		out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
 
-			for(int j = 0; j <= grid_size->Y; j++){
-				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
-				}
-				out_file << endl;
+		for(int j = 0; j <= grid_size->Y; j++){
+			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
 			}
-			out_file.close();
-			cout << "\r" << "Saving T : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
+			out_file << endl;
 		}
-		cout << endl;
+		out_file.close();
 	}
 
 	if (debug->vxy){
-		for (int k = 0; k < solution.size(); k ++){
-			out.str("");
-			out << out_dir << "vx_step_";
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out.str("");
+		out << out_dir << "vx_step_";
+		out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
 
-			for (int j = 0; j <= grid_size->Y; j++){
-				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].vx[i2n * (j - array_index->jsta2m) + abs(i) - array_index->ista2n] << endl;
-				}
-				out_file << endl;
+		for (int j = 0; j <= grid_size->Y; j++){
+			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.vx[i2n * (j - array_index->jsta2m) + abs(i) - array_index->ista2n] << endl;
 			}
-			out_file.close();
-			cout << "\r" << "Saving VX : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
+			out_file << endl;
 		}
-		cout << endl;
-		for (int k = 0; k < solution.size(); k ++){
-			out.str("");
-			out << out_dir << "vy_step_";
-			out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out_file.close();
 
-			for (int j = 0; j <= grid_size->Y; j++){
-				for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-					out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << solution[k].vy[i2m * (j - array_index->jsta2n) + abs(i) - array_index->ista2m] << endl;
-				}
-				out_file << endl;
+		out.str("");
+		out << out_dir << "vy_step_";
+		out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
+
+		for (int j = 0; j <= grid_size->Y; j++){
+			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
+				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.vy[i2m * (j - array_index->jsta2n) + abs(i) - array_index->ista2m] << endl;
 			}
-			out_file.close();
-			cout << "\r" << "Saving VY : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
+			out_file << endl;
 		}
-		cout << endl;
+		out_file.close();
 	}
 	if (debug->bubbles){
-		for (int k = 0; k < solution.size(); k++){
-			out.str("");
-			out << out_dir << "bubble_radii_";
-				out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out.str("");
+		out << out_dir << "bubble_radii_";
+			out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
 
-			for (int i = 0; i < numBubbles; i++){
-				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].R_t[i] <<  endl;
-			}
+		for (int i = 0; i < numBubbles; i++){
+			out_file << bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.R_t[i] <<  endl;
+		}
 //			if (plane_wave->cylindrical){
 //				for (int i = 0; i < numBubbles; i++){
-//					out_file << -solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].R_t[i] <<  endl;
+//					out_file << -bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.R_t[i] <<  endl;
 //				}
 //			}
-			out_file.close();
-			cout << "\r" << "Saving Bubble Radii : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
-		}
-		cout << endl;
-		for (int k = 0; k < solution.size(); k++){
-			out.str("");
-			out << out_dir << "bubble_PG_";
-				out.width(5); out.fill('0'); out << (k + 1) * sim_params->DATA_SAVE << ".txt";
-			out_file.open((out.str()).c_str());
+		out_file.close();
 
-			for (int i = 0; i < numBubbles; i++){
-				out_file << solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PG_p[i] << endl;
-			}
+		out.str("");
+		out << out_dir << "bubble_PG_";
+			out.width(5); out.fill('0'); out << step << ".txt";
+		out_file.open((out.str()).c_str());
+
+		for (int i = 0; i < numBubbles; i++){
+			out_file << bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.PG_p[i] << endl;
+		}
 //			if (plane_wave->cylindrical){
 //				for (int i = 0; i < numBubbles; i++){
-//					out_file << -solution[k].pos[i].x << "\t" << solution[k].pos[i].y << "\t" << solution[k].PG_p[i] << endl;
+//					out_file << -bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.PG_p[i] << endl;
 //				}
 //			}
-			out_file.close();
-			cout << "\r" << "Saving Bubble Liquid Pressure : " << (int) 100 * (k + 1) / solution.size() << "% done";
-			cout.flush();
-		}
-		cout << endl;
+		out_file.close();
 	}
 	return 0;
 }
@@ -215,8 +186,6 @@ int runSimulation(int argc, char **argv)
 	time_t start_time = time(NULL);
 	bool ok = true;
 	string in_file, out_file;
-
-	thrust::host_vector<solution_space> solution;
 
 	grid_t 	*grid_size;
 	PML_t 	*PML;
@@ -313,10 +282,7 @@ int runSimulation(int argc, char **argv)
 	array_index_t *array_index = (array_index_t *) calloc(1, sizeof(array_index_t));
 
 	// Enter main simulation loop
-	if (ok)
-	{
-		solution = solve_bubbles(array_index, grid_size, PML, sim_params, bub_params, plane_wave, debug, argc, argv);
-	}
+	if (ok && solve_bubbles(array_index, grid_size, PML, sim_params, bub_params, plane_wave, debug, argc, argv)){exit(EXIT_FAILURE);}
 
 	// tell us the time
 
@@ -325,8 +291,5 @@ int runSimulation(int argc, char **argv)
 	runtime.open("runtime.txt");
 	runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
 	runtime.close();
-	// Output the solution
-	send_to_file(solution, array_index, grid_size, sim_params, plane_wave, debug);
-
 	return 0;
 }

@@ -1,6 +1,6 @@
 // CUDA solver for Rayleigh Plesset
 
-
+#include "bubbles.h"
 #include "bubble_CUDA.h"
 #include "bubble_CUDA_kernel.cuh"
 
@@ -30,7 +30,7 @@ int numBubbles = 0;
  *                      Host Functions                        *
  **************************************************************/
 
-host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
+int solve_bubbles(	array_index_t	*array_index,
 						grid_t		*grid_size,
 						PML_t		*PML,
 						sim_params_t	*sim_params,
@@ -39,32 +39,35 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 						debug_t		*debug,
 						int argc,
 						char ** argv){
-	#ifdef _DEBUG_
-		// Clear terminal for output
-		if(system("clear")){exit(EXIT_FAILURE);}
-	#endif
-	setCUDAflags();
-
 	// Variables needed for control structures
 	unsigned int nstep = 0, save_count = 0;
 	double tstep = 0.0, tstepx = 0.0;
 	int loop;
 	double resimax;
 	double s1, s2;
+	bool rejoin = 0;
+
+	pthread_t save_thread;
+	pthread_attr_t pthread_custom_attr;
+	output_plan_t *plan;
+
+	pthread_attr_init(&pthread_custom_attr);
+
+	plan = (output_plan_t *)malloc(sizeof(output_plan_t));
+
+	int max_iter;
 
 	#ifdef _DEBUG_
-		int max_iter;
+		// Clear terminal for output
+		if(system("clear")){exit(EXIT_FAILURE);}
 	#endif
+	setCUDAflags();
 
 	int num_streams = 3;
 	cudaStream_t stream[num_streams];
 	for (int i = 0; i < num_streams; i++){cudaStreamCreate(&stream[i]);}
 	cudaEvent_t stop[num_streams];
 	for (int i = 0; i < num_streams; i++){cudaEventCreateWithFlags(&stop[i], cudaEventBlockingSync);}
-
-	// Variable Declaration
-	// Storage variable for full solution (mixture and bubble data)
-	host_vector<solution_space> solution;
 
 	// Mixture Parameters
 	mix_params_t	*mix_params = (mix_params_t*) calloc(1, sizeof(mix_params_t));
@@ -75,6 +78,10 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 		exit(EXIT_FAILURE);
 	}
 	printf("\tdone\n\n");
+
+	printf("Preparing folders...");
+	if(initialize_folders()){exit(EXIT_FAILURE);}
+	printf("\t\t\tdone\n\n");
 
 	// Allocate memory on the device
 	printf("Allocating Memory...");
@@ -92,6 +99,14 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 	// Set f_gn and f_gm to f_g
 	if(synchronize_void_fraction(mixture_htod, f_g_pitch, stream, stop)){exit(EXIT_FAILURE);}
 	printf("\tdone\n\n");
+
+	plan->mixture_h = mixture_h;
+	plan->bubbles_h = bubbles_h;
+	plan->array_index = array_index;
+	plan->grid_size = grid_size;
+	plan->sim_params = sim_params;
+	plan->plane_wave = plane_wave;
+	plan->debug = debug;
 
 	/************************
 	 * Main simulation loop	*
@@ -130,11 +145,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 				if(interpolate_bubble_pressure(p0_width, stream, stop)){exit(EXIT_FAILURE);}
 
 				// Solve Rayleigh-Plesset Equations
-				#ifdef _DEBUG_
 					max_iter = solve_bubble_radii(bubbles_htod, stream, stop);
-				#else
-					if(solve_bubble_radii(bubbles_htod, stream, stop)){exit(EXIT_FAILURE);}
-				#endif
 
 				// Calculate Void Fraction
 				if(calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stream, stop)){exit(EXIT_FAILURE);}
@@ -157,25 +168,23 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 
 		// Save data at intervals
 		if((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0)){
-			solution.resize(save_count+1);
-			if (debug->p0) solution[save_count].p0 = (double*)calloc(m1Vol, sizeof(double));
-			if (debug->fg) solution[save_count].f_g = (double*)calloc(m2Vol, sizeof(double));
-			if (debug->T)solution[save_count].T = (double*)calloc(m2Vol, sizeof(double));
-			if (debug->vxy) solution[save_count].vx = (double*)calloc(v_xVol, sizeof(double));
-			if (debug->vxy) solution[save_count].vy = (double*)calloc(v_yVol, sizeof(double));
-			if (debug->pxy)solution[save_count].p = (double2*)calloc(m1Vol, sizeof(double2));
-			if (debug->bubbles)solution[save_count].pos = (double2*)calloc(numBubbles, sizeof(double2));
-			if (debug->bubbles)solution[save_count].R_t = (double*)calloc(numBubbles, sizeof(double));
-			if (debug->bubbles)solution[save_count].PG_p = (double*)calloc(numBubbles, sizeof(double));
-			if (debug->p0)cudaMemcpy2D(	solution[save_count].p0, sizeof(double)*i1m, mixture_htod.p0, p0_pitch, sizeof(double)*i1m, j1m, cudaMemcpyDeviceToHost);
-			if (debug->fg)cudaMemcpy2D(	solution[save_count].f_g, sizeof(double)*i2m, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost);
-			if (debug->T)cudaMemcpy2D(	solution[save_count].T, sizeof(double)*i2m, mixture_htod.T, T_pitch, sizeof(double)*i2m, j2m, 	cudaMemcpyDeviceToHost);
-			if (debug->vxy)cudaMemcpy2D(	solution[save_count].vx, sizeof(double)*i2n, mixture_htod.vx, vx_pitch, sizeof(double)*i2n, j2m, cudaMemcpyDeviceToHost);
-			if (debug->vxy)cudaMemcpy2D(	solution[save_count].vy, sizeof(double)*i2m, mixture_htod.vy, vy_pitch, sizeof(double)*i2m, j2n, cudaMemcpyDeviceToHost);
-			if (debug->pxy)cudaMemcpy2D(	solution[save_count].p, sizeof(double2)*i1m, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1n, cudaMemcpyDeviceToHost);
-			if (debug->bubbles)cudaMemcpy(	solution[save_count].pos, bubbles_htod.pos, sizeof(double2)*numBubbles, cudaMemcpyDeviceToHost);
-			if (debug->bubbles)cudaMemcpy(	solution[save_count].R_t, bubbles_htod.R_t, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
-			if (debug->bubbles)cudaMemcpy(	solution[save_count].PG_p, bubbles_htod.PG_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
+
+			if (rejoin){pthread_join(save_thread, NULL);}
+			else{rejoin = 1;}
+
+			if (debug->p0)cudaMemcpy2D(	mixture_h.p0, sizeof(double)*i1m, mixture_htod.p0, p0_pitch, sizeof(double)*i1m, j1m, cudaMemcpyDeviceToHost);
+			if (debug->fg)cudaMemcpy2D(	mixture_h.f_g, sizeof(double)*i2m, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost);
+			if (debug->T)cudaMemcpy2D(	mixture_h.T, sizeof(double)*i2m, mixture_htod.T, T_pitch, sizeof(double)*i2m, j2m, 	cudaMemcpyDeviceToHost);
+			if (debug->vxy)cudaMemcpy2D(	mixture_h.vx, sizeof(double)*i2n, mixture_htod.vx, vx_pitch, sizeof(double)*i2n, j2m, cudaMemcpyDeviceToHost);
+			if (debug->vxy)cudaMemcpy2D(	mixture_h.vy, sizeof(double)*i2m, mixture_htod.vy, vy_pitch, sizeof(double)*i2m, j2n, cudaMemcpyDeviceToHost);
+			if (debug->pxy)cudaMemcpy2D(	mixture_h.p, sizeof(double2)*i1m, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1n, cudaMemcpyDeviceToHost);
+			if (debug->bubbles)cudaMemcpy(	bubbles_h.pos, bubbles_htod.pos, sizeof(double2)*numBubbles, cudaMemcpyDeviceToHost);
+			if (debug->bubbles)cudaMemcpy(	bubbles_h.R_t, bubbles_htod.R_t, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
+			if (debug->bubbles)cudaMemcpy(	bubbles_h.PG_p, bubbles_htod.PG_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
+
+			plan->step = nstep;
+			pthread_create(&save_thread, &pthread_custom_attr, save_step, (void *)(plan));
+
 			#ifdef _DEBUG_
 				if(system("clear")){exit(EXIT_FAILURE);}
 			#else
@@ -200,9 +209,9 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					for (double i = 0; i <= numBubbles - 1; i += (numBubbles-1)/a){
 					printf("Bubble %i has position (%4.2E, %4.2E), radius %4.2E.\n",
 						(int)i,
-						solution[save_count].pos[(int)i].x,
-						solution[save_count].pos[(int)i].y,
-						solution[save_count].R_t[(int)i]);
+						bubbles_h.pos[(int)i].x,
+						bubbles_h.pos[(int)i].y,
+						bubbles_h.R_t[(int)i]);
 					}
 				}
 				printf("resimax = %4.2E\n\n",resimax);
@@ -217,7 +226,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					}
 					printf("(%i)\t",(int)j);
 					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-					printf("%4.2E\t", solution[save_count].f_g[i2m * (int)j + (int)i]);
+					printf("%4.2E\t", mixture_h.f_g[i2m * (int)j + (int)i]);
 					}
 					printf("\n");
 					}
@@ -233,7 +242,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					}
 					printf("(%i)\t",(int)j);
 					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-					printf("%4.2E\t", solution[save_count].p0[i1m * (int)j + (int)i]);
+					printf("%4.2E\t", mixture_h.p0[i1m * (int)j + (int)i]);
 					}
 					printf("\n");
 					}
@@ -249,7 +258,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					}
 					printf("(%i)\t",(int)j);
 					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-					printf("%4.2E\t", solution[save_count].p[i1m * (int)j + (int)i].x);
+					printf("%4.2E\t", mixture_h.p[i1m * (int)j + (int)i].x);
 					}
 					printf("\n");
 					}
@@ -265,7 +274,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					}
 					printf("(%i)\t",(int)j);
 					for (double i = 0; i <= i1m - 1; i += (i1m - 1)/a){
-					printf("%4.2E\t", solution[save_count].p[i1m * (int)j + (int)i].y);
+					printf("%4.2E\t", mixture_h.p[i1m * (int)j + (int)i].y);
 					}
 					printf("\n");
 					}
@@ -281,7 +290,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					}
 					printf("(%i)\t",(int)j);
 					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-					printf("%4.2E\t", solution[save_count].T[i2m * (int)j + (int)i]);
+					printf("%4.2E\t", mixture_h.T[i2m * (int)j + (int)i]);
 					}
 					printf("\n");
 					}
@@ -297,7 +306,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					}
 					printf("(%i)\t",(int)j);
 					for (double i = 0; i <= i2n - 1; i += (i2n - 1)/a){
-					printf("%4.2E\t", solution[save_count].vx[i2n * (int)j + (int)i]);
+					printf("%4.2E\t", mixture_h.vx[i2n * (int)j + (int)i]);
 					}
 					printf("\n");
 					}
@@ -313,7 +322,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 					}
 					printf("(%i)\t",(int)j);
 					for (double i = 0; i <= i2m - 1; i += (i2m - 1)/a){
-					printf("%4.2E\t", solution[save_count].vy[i2m * (int)j + (int)i]);
+					printf("%4.2E\t", mixture_h.vy[i2m * (int)j + (int)i]);
 					}
 					printf("\n");
 					}
@@ -326,7 +335,9 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 	(((*sim_params).NSTEPMAX != 0) && (nstep < (*sim_params).NSTEPMAX))
 	||
 	(((*sim_params).TSTEPMAX != 0) && (tstep < (*sim_params).TSTEPMAX)));
-
+	
+	pthread_join(save_thread, NULL);
+	
 	#ifndef _DEBUG_
 		printf("\r");
 	#endif
@@ -341,7 +352,7 @@ host_vector<solution_space> solve_bubbles(	array_index_t	*array_index,
 
 	for (int i = 0; i < num_streams; i++){cudaEventDestroy(stop[i]);}
 	printf("\tdone\n\n");
-	return solution;
+	return 0;
 } // solve_bubbles()
 
 int initialize_CUDA_variables(	grid_t		*grid_size,

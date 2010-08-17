@@ -294,7 +294,6 @@ __global__ void BubbleMotionKernel(){
 	}
 }
 
-#ifdef _DEBUG_
 // Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
 __global__ __launch_bounds__(BUB_RAD_MAX_THREADS, BUB_RAD_MIN_BLOCKS) void BubbleRadiusKernel(int * max_iter){
 	const int index = blockDim.x * blockIdx.x + threadIdx.x;
@@ -376,79 +375,6 @@ __global__ __launch_bounds__(BUB_RAD_MAX_THREADS, BUB_RAD_MIN_BLOCKS) void Bubbl
 	}
 	return;
 }
-#else
-// Solves the Rayleigh-Plesset equations for bubble dynamics, to calculate bubble radius
-__global__ __launch_bounds__(BUB_RAD_MAX_THREADS, BUB_RAD_MIN_BLOCKS) void BubbleRadiusKernel(){
-	const int index = blockDim.x * blockIdx.x + threadIdx.x;
-
-	double PGn, PL, Rt, omega_N;
-	double dTdr_R = 0, SumHeat, SumVis;
-	doublecomplex alpha_N, Lp_N;
-
-	double PGp, Rp, Rn, d1Rp, dt_L, remain, time;
-	double PC0, PC1, PC2;
-
-	double s0, s1;
-
-	if (index < num_bubbles){
-		// Cache bubble parameters
-		Rp 	= bubbles_c.R_pn[index];
-		Rn 	= bubbles_c.R_nn[index];
-		d1Rp 	= bubbles_c.d1_R_n[index];
-		PGp	= bubbles_c.PG_n[index];
-		dt_L	= bubbles_c.dt_n[index];
-		remain	= bubbles_c.re_n[index] + mix_params_c.dt;
-		time = -bubbles_c.re_n[index];
-
-		// Calculate coefficients for predicting liquid pressure around the bubble
-		PC0 = bubbles_c.PL_n[index] + bub_params_c.PL0;
-		PC1 = 0.5*(bubbles_c.PL_p[index]-bubbles_c.PL_m[index])/mix_params_c.dt;
-		PC2 = 0.5*(bubbles_c.PL_p[index]+bubbles_c.PL_m[index]-2.0*bubbles_c.PL_n[index])/(mix_params_c.dt * mix_params_c.dt);
-
-		// Reset accumulated variables
-		SumHeat = 0.0;
-		SumVis = 0.0;
-
-		while (remain > 0.0){
-			PGn 	= 	PGp;	// Step the gas pressure forwards
-			PL 	= 	PC2 * time * time + PC1 * time + PC0;	// Step the liquid pressure forwards
-
-			solveRayleighPlesset(&Rt, &Rp, &Rn, &d1Rp, PGn, PL, &dt_L, &remain, bub_params_c);	// Solve the reduced order rayleigh-plesset eqn
-			time = time + dt_L;	// Increment time step
-
-			omega_N = solveOmegaN (&alpha_N, PGn, Rn, bub_params_c);	// Solve bubble natural frequency
-
-			Lp_N = solveLp(alpha_N, Rn);	// Solve Lp
-
-			PGp = solvePG(PGn, Rp, Rn, omega_N, dt_L, Lp_N, bub_params_c);	// solve for the gas pressure at the next time step
-
-//			PGp = bub_params_c.PG0 * bub_params_c.R03 / (Rp * Rp * Rp);
-
-			// Calculate the the partial derivative dT/dr at the surface of the bubble
-			s0 = 0.5*(Rp+Rn);
-			s1 = 1 / (Lp_N.real * Lp_N.real + Lp_N.imag * Lp_N.imag) * bub_params_c.T0 / (bub_params_c.PG0 * bub_params_c.R03);
-			dTdr_R 	= 	Lp_N.real * s1 * (bub_params_c.PG0 * bub_params_c.R03 - 0.5*(PGp+PGn)*s0*s0*s0) +
-					Lp_N.imag * s1 * (PGp * Rp * Rp * Rp - PGn * Rn * Rn * Rn) / (omega_N * dt_L);
-
-			SumHeat -= 4.0 * Pi * Rp * Rp * bub_params_c.K0 * dTdr_R * dt_L;
-			// Accumulate bubble viscous dissipation
-			SumVis 	+= 4.0 * Pi * Rp * Rp * 4.0 * bub_params_c.mu * d1Rp / Rp * d1Rp * dt_L;
-		}
-
-		// Assign values back to the global memory
-		bubbles_c.R_t[index] 	= Rt;
-		bubbles_c.R_p[index] 	= Rp;
-		bubbles_c.R_n[index] 	= Rn;
-		bubbles_c.d1_R_p[index]	= d1Rp;
-		bubbles_c.PG_p[index] 	= PGp;
-		bubbles_c.dt[index]	= dt_L;
-		bubbles_c.re[index]	= remain;
-		bubbles_c.Q_B[index]	= (SumHeat + SumVis) / (mix_params_c.dt - remain + bubbles_c.re_n[index]);
-		//}
-	}
-	return;
-}
-#endif
 
 /* Mixture Kernels */
 
@@ -1258,22 +1184,13 @@ int solve_bubble_radii(bubble_t bubbles_htod, cudaStream_t stream[], cudaEvent_t
 	const int block = BUB_RAD_MAX_THREADS;
 	dim3 dimBubbleBlock(block);
 	dim3 dimBubbleGrid((numBubbles + block - 1) / (block));
-	#ifdef _DEBUG_
 		thrust::device_vector<int> max_iter_d(numBubbles);
-	#endif
 
-	#ifdef _DEBUG_
 		BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (thrust::raw_pointer_cast(&max_iter_d[0]));
-	#else
-		BubbleRadiusKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> ();
-	#endif
 
 	cudaStreamSynchronize(stream[0]);
 	checkCUDAError("Bubble Radius");
 
-	#ifdef _DEBUG_
 		return thrust::reduce(max_iter_d.begin(), max_iter_d.end(), (int) 0, thrust::maximum<int>());
-	#else
-		return 0;
-	#endif
+
 }
