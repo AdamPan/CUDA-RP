@@ -1,0 +1,46 @@
+A High Intensity Focused Ultrasound Simulator implemented using
+NVIDIA's Compute Unified Device Architecture
+
+Author: Adam Pan
+
+1. Building
+
+    Requirements:
+        - CUDA enabled graphics card (Compute 2.0)
+        - NVIDIA developer drivers
+        - CUDA Toolkit 3.0
+        - gcc 4.0+
+
+    To compile the program, use "make".
+    The binary is located in "/bin/[platform]/release/"
+
+2. Usage
+
+    The program requires a configuration file to specify the simulation 
+    parameters. A few preconstructed configuration files can be found in 
+    "/confs/".
+
+    Example:	bubbles confs/Sample.txt
+
+    The program outputs the results as plain-text tuples into "/results/".
+
+    I've also added some form of automation using shell scripts:
+
+        plot_results.sh [x-dimensions, y-dimensions, x-pixels, y-pixels]
+
+            plots data outputted by the program, and stores them in
+            "/images/".
+
+        executor.sh [ConfName]
+
+            The script looks in the "/confs/" directory for a series of
+            configuration files matching "ConfName_x.txt", where x is any
+            integer. It then runs through all the configuration files,
+            storing the results (as well as plots) in timestamped folders in
+            "/data/".
+
+3. Notes
+
+    The program is threadsafe, and does not interfere with the operation of
+    CPU bound applications. In addition, multiple instances of the program
+    may be launched on the same graphics card.
