@@ -1,6 +1,6 @@
 /*
  * A simple test of using CUDA to solve many Rayleigh Plesset problems in parallel
- * 
+ *
  * Written by Adam Pan
  *
  */

@@ -76,34 +76,6 @@ extern "C" void *save_step(void *threadArg){
 		out_file.close();
 	}
 
-	if (debug->pxy){
-		out.str("");
-		out << out_dir << "px_step_";
-		out.width(5); out.fill('0'); out << step << ".txt";
-		out_file.open((out.str()).c_str());
-
-		for(int j = 0; j <= grid_size->Y; j++){
-			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].x << endl;
-			}
-			out_file << endl;
-		}
-		out_file.close();
-		
-		out.str("");
-		out << out_dir << "py_step_";
-		out.width(5); out.fill('0'); out << step << ".txt";
-		out_file.open((out.str()).c_str());
-
-		for(int j = 0; j <= grid_size->Y; j++){
-			for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++){
-				out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m].y << endl;
-			}
-			out_file << endl;
-		}
-		out_file.close();
-	}
-
 	if (debug->T){
 		out.str("");
 		out << out_dir << "T_step_";
@@ -272,7 +244,6 @@ int runSimulation(int argc, char **argv)
 		debug->display	= (int)	cf.Value("Debug", "Display Lines");
 		debug->fg	= (bool)cf.Value("Debug", "Show fg");
 		debug->p0	= (bool)cf.Value("Debug", "Show p");
-		debug->pxy	= (bool)cf.Value("Debug", "Show p components");
 		debug->T	= (bool)cf.Value("Debug", "Show T");
 		debug->vxy	= (bool)cf.Value("Debug", "Show v");
 		debug->bubbles	= (bool)cf.Value("Debug", "Show Bubbles");

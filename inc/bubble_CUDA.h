@@ -40,8 +40,8 @@
 #define TRUE 1
 #define FALSE 0
 
-#define _CYLINDRICAL_
 //#define _DEBUG_
+#define _OUTPUT_
 
 #define EPSILON 0.01
 
@@ -49,15 +49,7 @@
 
 #define TILE_BLOCK_WIDTH	16
 #define TILE_BLOCK_HEIGHT	16
-//#define TILE_BLOCK_SIZE	16
 #define LINEAR_BLOCK_SIZE	256
-
-#define VFRL_MAX_AREA	4
-#define BH_MAX_AREA	4
-
-#define WINDOW_HEIGHT	600
-#define WINDOW_WIDTH	800
-
 
 struct __align__(16) debug_t
 {
@@ -65,7 +57,6 @@ struct __align__(16) debug_t
 	// Switches for display
 	bool fg;	// Void Fraction
 	bool p0;	// Pressure
-	bool pxy;	// Pressure (x and y components) 
 	bool T;		// Temperature
 	bool vxy;	// Velocity
 	bool bubbles;	// Bubbles
@@ -108,7 +99,7 @@ struct __align__(16) sigma_t
 struct __align__(16) PML_t
 {
 	bool	X0, X1, Y0, Y1;	// Flags for PML boundaries
-	int	NPML;		// Depth of PML in cells 
+	int	NPML;		// Depth of PML in cells
 	int	order;		// PML order
 	double	sigma;		// sigma used for PML layer
 };
@@ -230,6 +221,8 @@ struct output_plan_t
 	plane_wave_t *plane_wave;
 	debug_t *debug;
 };
+
+void display(double data[], int xdim, int ydim, string msg){
 
 int solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
 
