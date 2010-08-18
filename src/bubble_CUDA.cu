@@ -1337,8 +1337,8 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
     double3 tmp;
 
     tmp.x = 1.0/((double)sim_params->deltaBand);
-    tmp.y = 2.0 * Pi_h / ((double)sim_params->deltaBand) * grid_size->rdx;
-    tmp.z = 2.0 * Pi_h / ((double)sim_params->deltaBand) * grid_size->rdy;
+    tmp.y = 2.0 * acos(-1.0) / ((double)sim_params->deltaBand) * grid_size->rdx;
+    tmp.z = 2.0 * acos(-1.0) / ((double)sim_params->deltaBand) * grid_size->rdy;
 
     cutilSafeCall(cudaMemcpyToSymbol(mixture_c,	&mixture_htod,	sizeof(mixture_t)));
 

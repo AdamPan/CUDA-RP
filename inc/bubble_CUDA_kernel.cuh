@@ -49,12 +49,12 @@ static __inline__ __host__ __device__ double smooth_delta_x(const int, const dou
 static __inline__ __host__ __device__ double smooth_delta_y(const int, const double);	// y-direction
 
 // Functions used by the bubble radius solver
-static __forceinline__ __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double, const double, double * , double *, const bub_params_t);	// Solves the Rayleigh Plesset equation
-static __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex *, const double, const double, const bub_params_t);	// Solves for omega_N
-static __forceinline__ __host__ __device__ doublecomplex Alpha(const double, const double, const double);	// Calculates alpha_N
-static __forceinline__ __host__ __device__ doublecomplex Upsilon(const doublecomplex , const double);	// Calculates Upsilon
-static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecomplex, const double);	// Calculates Lp_N
-static __forceinline__ __host__ __device__ double solvePG(const double, const double, const double, const double, const double, const doublecomplex, const bub_params_t);	// Calculates PG
+static __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double, const double, double * , double *, const bub_params_t);	// Solves the Rayleigh Plesset equation
+static __host__ __device__ double solveOmegaN(doublecomplex *, const double, const double, const bub_params_t);	// Solves for omega_N
+static __host__ __device__ doublecomplex Alpha(const double, const double, const double);	// Calculates alpha_N
+static __host__ __device__ doublecomplex Upsilon(const doublecomplex , const double);	// Calculates Upsilon
+static __host__ __device__ doublecomplex solveLp(const doublecomplex, const double);	// Calculates Lp_N
+static __host__ __device__ double solvePG(const double, const double, const double, const double, const double, const doublecomplex, const bub_params_t);	// Calculates PG
 
 /* Static utility functions */
 
@@ -136,23 +136,20 @@ __inline__ __host__ __device__ double surface_tension_water(double T)
 } // surface_tension_water()
 
 // Smooth Delta Functions
-__inline__ __host__ __device__ double smooth_delta_x(	const int pos,
-        const double bub_x)
+static __inline__ __host__ __device__ double smooth_delta_x( const int pos, const double bub_x)
 {
-//	return delta_coef.x * (1.0 + cos(delta_coef.y * (((double)pos - 0.5)*grid_c.dx - bub_x)));
-    return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdx) * (((double)pos - 0.5)*grid_c.dx - bub_x)));
-} // smooth_delta_x()
-__inline__ __host__ __device__ double smooth_delta_y(	const int pos,
-        const double bub_y)
+	return delta_coef.x * (1.0 + cos(delta_coef.y * (((double)pos - 0.5)*grid_c.dx - bub_x)));
+}
+
+static __inline__ __host__ __device__ double smooth_delta_y( const int pos, const double bub_y)
 {
-//	return delta_coef.x * (1.0 + cos(delta_coef.z * (((double)pos - 0.5)*grid_c.dy - bub_y)));
-    return (1.0/((double)sim_params_c.deltaBand)) * (1.0 + cos((2.0 * Pi / ((double)sim_params_c.deltaBand) * grid_c.rdy) * (((double)pos - 0.5)*grid_c.dy - bub_y)));
-} // smooth_delta_y()
+	return delta_coef.x * (1.0 + cos(delta_coef.z * (((double)pos - 0.5)*grid_c.dy - bub_y)));
+}
 
 /* Reduced Order Bubble Dynamics Modelling Functions */
 
 // Rayleigh Plesset solver
-__forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double PG, const double PL, double * dt, double * remain, const bub_params_t bub_params)
+static __host__ __device__ void solveRayleighPlesset(double * Rt, double *Rp, double * Rn, double * d1R, const double PG, const double PL, double * dt, double * remain, const bub_params_t bub_params)
 {
     double 	Rm, Rnd2R, 	// Temporary radius variables
     dtm, dtp; 	// Temporary time variables
@@ -188,7 +185,7 @@ __forceinline__ __host__ __device__ void solveRayleighPlesset(double * Rt, doubl
 }
 
 // Implicit solver for omega_N and alpha_N
-__forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, const double PG, const double R, const bub_params_t bub_params)
+static __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, const double PG, const double R, const bub_params_t bub_params)
 {
     // Calculate coefficients
     double Rx = R / bub_params.R0;
@@ -216,13 +213,13 @@ __forceinline__ __host__ __device__ double solveOmegaN(doublecomplex * alpha_N, 
 }
 
 // Calculates and returns alpha_N
-static __forceinline__ __host__ __device__ doublecomplex Alpha(const double R, const double omega_N, const double coeff_alpha)
+static __host__ __device__ doublecomplex Alpha(const double R, const double omega_N, const double coeff_alpha)
 {
     return make_doublecomplex(1.0, 1.0) * sqrt(coeff_alpha / R * omega_N);
 }
 
 // Calculates and returns Upsilon_N
-static __forceinline__ __host__ __device__ doublecomplex Upsilon(const doublecomplex a, const double gam)
+static __host__ __device__ doublecomplex Upsilon(const doublecomplex a, const double gam)
 {
     if (abs(a) > 1.0e-1)
     {
@@ -235,7 +232,7 @@ static __forceinline__ __host__ __device__ doublecomplex Upsilon(const doublecom
 }
 
 // Calculates and returns Lp_N
-static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecomplex a, const double R)
+static __host__ __device__ doublecomplex solveLp(const doublecomplex a, const double R)
 {
     doublecomplex ctmp;
     if (abs(a) > 1.0e-1)
@@ -251,7 +248,7 @@ static __forceinline__ __host__ __device__ doublecomplex solveLp(const doublecom
 }
 
 // Calculates and returns PG
-__forceinline__ __host__ __device__ double solvePG(const double PGn, const double Rp, const double Rn, const double omega_N, const double dt, const doublecomplex Lp_N, const bub_params_t bub_params)
+static __host__ __device__ double solvePG(const double PGn, const double Rp, const double Rn, const double omega_N, const double dt, const doublecomplex Lp_N, const bub_params_t bub_params)
 {
     double R = 0.5 * (Rp + Rn);
     double Rx = R /bub_params.R0;
