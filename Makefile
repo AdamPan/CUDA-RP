@@ -7,9 +7,9 @@ CUFILES		:= src/bubble_CUDA.cu
 CU_DEPS     	:= inc/bubble_CUDA_kernel.cuh
 # C/C++ source files (gcc 4.3)
 SRCDIR		:= src/
-CCFILES		:= bubbles.cpp Chameleon.cpp ConfigFile.cpp
+CCFILES		:= bubbles.cpp Chameleon.cpp ConfigFile.cpp matplot.cpp
 
-INCLUDES	+= -Iinc/
+INCLUDES	+= -Iinc/ -I/usr/local/include/vtk -L/usr/local/lib/vtk
 
 # Support multiple architectures
 # Compute 1.3
