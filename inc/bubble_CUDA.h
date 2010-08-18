@@ -224,34 +224,34 @@ struct output_plan_t
 
 void display(double data[], int xdim, int ydim, int num_lines, char **msg);
 
-    int solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
+int solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int argc, char ** argv);
 
-    int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
+int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 
-    int initialize_CUDA_variables(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
-    int destroy_CUDA_variables(bub_params_t *bub_params);
+int initialize_CUDA_variables(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
+int destroy_CUDA_variables(bub_params_t *bub_params);
 
-    grid_t init_grid_size(grid_t grid_size);
+grid_t init_grid_size(grid_t grid_size);
 
-    plane_wave_t init_plane_wave(plane_wave_t plane_wave, grid_t grid_size);
+plane_wave_t init_plane_wave(plane_wave_t plane_wave, grid_t grid_size);
 
-    array_index_t init_array (const grid_t grid_size, const sim_params_t sim_params);
+array_index_t init_array (const grid_t grid_size, const sim_params_t sim_params);
 
-    bub_params_t init_bub_params (bub_params_t bub_params, sim_params_t sim_params, double dt);
+bub_params_t init_bub_params (bub_params_t bub_params, sim_params_t sim_params, double dt);
 
-    grid_gen init_grid_vector(array_index_t array_index, grid_t grid_size);
+grid_gen init_grid_vector(array_index_t array_index, grid_t grid_size);
 
-    sigma_t init_sigma(const PML_t PML, const sim_params_t sim_params, const grid_t grid_size, const array_index_t array_index);
-    mix_params_t init_mix();
+sigma_t init_sigma(const PML_t PML, const sim_params_t sim_params, const grid_t grid_size, const array_index_t array_index);
+mix_params_t init_mix();
 
-    double mix_set_time_increment(sim_params_t sim_params, double dx_min, double u_max);
-    mixture_t init_mix_array(mix_params_t *mix_params, array_index_t array_index);
+double mix_set_time_increment(sim_params_t sim_params, double dx_min, double u_max);
+mixture_t init_mix_array(mix_params_t *mix_params, array_index_t array_index);
 
-    bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, array_index_t *array_index, grid_t *grid_size, plane_wave_t *plane_wave);
-    bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size, plane_wave_t plane_wave);
+bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, array_index_t *array_index, grid_t *grid_size, plane_wave_t *plane_wave);
+bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size, plane_wave_t plane_wave);
 
-    void setCUDAflags();
-    void checkCUDAError(const char* msg);
+void setCUDAflags();
+void checkCUDAError(const char* msg);
 #endif
 
 

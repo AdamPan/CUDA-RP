@@ -1,16 +1,19 @@
 
 #include "bubbles.h"
 #include "bubble_CUDA.h"
-
+#include "EasyBMP.h"
+#include "EasyBMP_SimpleArray.h"
 
 using namespace std;
-
 
 extern int numBubbles;
 extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
 
+RGBApixel GrayColoring( double t );
+
 // Forward declarations
 int runSimulation(int argc, char **argv);
+void AddGrayscaleColorbar( BMP& InputImage, int Thickness );
 
 int main (int argc, char **argv)
 {
@@ -36,6 +39,72 @@ extern "C" int initialize_folders()
         exit(EXIT_FAILURE);
     }
     return 0;
+}
+
+extern "C" void *draw_step(void *threadArg)
+{
+    struct output_plan_t plan;
+    plan = *((struct output_plan_t*) threadArg);
+    mixture_t mixture_h = plan.mixture_h;
+    bubble_t bubbles_h = plan.bubbles_h;
+    int step = plan.step;
+    array_index_t *array_index = plan.array_index;
+    grid_t *grid_size = plan.grid_size;
+    sim_params_t *sim_params = plan.sim_params;
+    plane_wave_t *plane_wave = plan.plane_wave;
+    debug_t *debug = plan.debug;
+
+    BMP Output;
+
+//    char *OutputName = "T_step_";
+//    strcat(OutputName, ".bmp");
+
+//    int HeightPadding = 17;
+//    int cols = (plane_wave->cylindrical ? (2 * grid_size->X + 1) : (grid_size->X + 1));
+//    int rows = grid_size->Y + 1;
+//    Output.SetSize(cols, rows + HeightPadding);
+
+//    Output.SetBitDetph(24);
+//    CreateGrayScaleColorTable(Output);
+
+//    double MaxValue = -9e99;
+//    double MinValue = 9e99;
+
+//    for (int j = 0; j <= grid_size->Y; j++)
+//    {
+//        for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
+//        {
+//            if (mixture_h.T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] < MinValue)
+//            {
+//                MinValue = mixture_h.T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m];
+//            }
+//            if (mixture_h.T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] > MaxValue)
+//            {
+//                MaxValue = mixture_h.T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m];
+//            }
+//        }
+//    }
+//    if ( abs( MaxValue - MinValue ) <= 1e-10 )
+//    {
+//        MaxValue = MinValue + 1.0;
+//    }
+//    double TotalSpread = MaxValue - MinValue;
+//    for (int j = 0; j <= grid_size->Y; j++)
+//    {
+//        for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
+//        {
+//            // determine the color
+//            double DoubleValue = ( mixture_h.T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] - MinValue ) / TotalSpread;
+//            RGBApixel ResultantPixelColor;
+//            ResultantPixelColor = GrayColoring( DoubleValue );
+
+//            *Output(i - (plane_wave->cylindrical ? -grid_size->X : 0), j) = ResultantPixelColor;
+//        }
+//    }
+
+//    AddGrayscaleColorbar( Output , 17);
+//    // output the file
+//    Output.WriteToFile( OutputName );
 }
 
 extern "C" void *save_step(void *threadArg)
@@ -310,4 +379,57 @@ int runSimulation(int argc, char **argv)
     runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
     runtime.close();
     return 0;
+}
+
+RGBApixel GrayColoring( double t )
+{
+    BYTE TempBYTE = (BYTE) (t*255.0);
+    RGBApixel Output;
+    Output.Red = TempBYTE;
+    Output.Green = TempBYTE;
+    Output.Blue = TempBYTE;
+    return Output;
+}
+
+void AddGrayscaleColorbar( BMP& InputImage , int Thickness )
+{
+    int i,j;
+
+    RGBApixel WHITE;
+    WHITE.Red = 255;
+    WHITE.Green = 255;
+    WHITE.Blue = 255;
+
+// add a border
+    for ( i=0 ; i < InputImage.TellWidth() ; i++ )
+    {
+        *InputImage(i,InputImage.TellHeight()-1) = WHITE;
+
+        *InputImage(i,InputImage.TellHeight()-Thickness) = WHITE;
+    }
+
+    for ( j=InputImage.TellHeight()-Thickness ; j < InputImage.TellHeight() ; j++ )
+    {
+        *InputImage(InputImage.TellWidth()-1,j) = WHITE;
+
+        *InputImage(0,j) = WHITE;
+    }
+
+// paste in the colorbar
+
+    for ( i=1 ; i < InputImage.TellWidth()-1 ; i++ )
+    {
+        BYTE TempColor = (BYTE) (unsigned int) ((i-1.0)*255.0/(InputImage.TellWidth()-2.0));
+        RGBApixel TempPixel;
+        TempPixel.Red = TempColor;
+        TempPixel.Green = TempColor;
+        TempPixel.Blue = TempColor;
+
+        for ( j=InputImage.TellHeight()-Thickness+1 ; j < InputImage.TellHeight()-1 ; j++ )
+        {
+            *InputImage(i,j) = TempPixel;
+        }
+    }
+
+    return;
 }

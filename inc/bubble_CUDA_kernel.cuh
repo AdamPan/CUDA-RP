@@ -138,12 +138,12 @@ __inline__ __host__ __device__ double surface_tension_water(double T)
 // Smooth Delta Functions
 static __inline__ __host__ __device__ double smooth_delta_x( const int pos, const double bub_x)
 {
-	return delta_coef.x * (1.0 + cos(delta_coef.y * (((double)pos - 0.5)*grid_c.dx - bub_x)));
+    return delta_coef.x * (1.0 + cos(delta_coef.y * (((double)pos - 0.5)*grid_c.dx - bub_x)));
 }
 
 static __inline__ __host__ __device__ double smooth_delta_y( const int pos, const double bub_y)
 {
-	return delta_coef.x * (1.0 + cos(delta_coef.z * (((double)pos - 0.5)*grid_c.dy - bub_y)));
+    return delta_coef.x * (1.0 + cos(delta_coef.z * (((double)pos - 0.5)*grid_c.dy - bub_y)));
 }
 
 /* Reduced Order Bubble Dynamics Modelling Functions */
