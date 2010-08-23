@@ -23,7 +23,7 @@ Order		=	2
 Smooth Delta Function Band	=	2
 
 [Plane Wave]
-Amplitude	=	0.2e-1
+Amplitude	=	0.005
 Frequency	=	1.0e6
 Focal Distance	=	40.0e-3
 Box Size	=	30.0e-3
@@ -32,12 +32,12 @@ On Wave		=	2
 Off Wave	=	0
 Plane Wave (V)	=	0
 Plane Wave (P)	=	0
-Focused Wave (P)=	1
-Focused Wave (V)=	0
+Focused Wave (P)=	0
+Focused Wave (V)=	1
 
 [Bubble Properties]
 Enable Bubbles		=	1
-Initial Void Fraction	=	1.0e-7
+Initial Void Fraction	=	1.0e-6
 Initial Radius		=	6.5e-7
 Initial Pressure	=	0.1e6
 Initial Temperature	=	293.15

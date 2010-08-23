@@ -8,6 +8,9 @@ using namespace std;
 
 extern int numBubbles;
 extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
+double fg_max = -1e10, fg_min = 1e10;
+double p0_max = -1e10, p0_min = 1e10;
+double T_max = -1e10, T_min = 1e10;
 
 // Forward declarations
 int runSimulation(int argc, char **argv);
@@ -24,9 +27,9 @@ extern "C" int initialize_folders()
 {
     ofstream out_file;
     stringstream out;
-    string out_dir = "./results/";
-    string clear_dir = "rm -rf ./results";
-    string make_dir = "mkdir results";
+    string out_dir = "./rawdata/";
+    string clear_dir = "rm -rf ./rawdata";
+    string make_dir = "mkdir rawdata";
     if (system(clear_dir.c_str()))
     {
         exit(EXIT_FAILURE);
@@ -51,9 +54,11 @@ extern "C" void *save_step(void *threadArg)
     plane_wave_t *plane_wave = plan.plane_wave;
     debug_t *debug = plan.debug;
 
+    int index = 0;
+
     ofstream out_file;
     stringstream out;
-    string out_dir = "./results/";
+    string out_dir = "./rawdata/";
     if (debug->fg)
     {
         out.str("");
@@ -67,7 +72,10 @@ extern "C" void *save_step(void *threadArg)
         {
             for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
-                out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.f_g[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
+                index = i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m;
+                out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.f_g[index] << endl;
+                fg_max = max(fg_max, mixture_h.f_g[index]);
+                fg_min = min(fg_min, mixture_h.f_g[index]);
             }
             out_file << endl;
         }
@@ -87,7 +95,10 @@ extern "C" void *save_step(void *threadArg)
         {
             for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
-                out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p0[i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m] << endl;
+                index = i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m;
+                out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p0[index] << endl;
+                p0_max = max(p0_max, mixture_h.p0[index]);
+                p0_min = min(p0_min, mixture_h.p0[index]);
             }
             out_file << endl;
         }
@@ -107,7 +118,10 @@ extern "C" void *save_step(void *threadArg)
         {
             for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
-                out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.T[i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m] << endl;
+                index = i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m;
+                out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.T[index] << endl;
+                T_max = max(T_max, mixture_h.T[index]);
+                T_min = min(T_min, mixture_h.T[index]);
             }
             out_file << endl;
         }
@@ -309,5 +323,22 @@ int runSimulation(int argc, char **argv)
     runtime.open("runtime.txt");
     runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
     runtime.close();
+    
+    ofstream file;
+    if (debug->T){
+        file.open("./rawdata/T_minmax.txt");
+        file << T_min << endl << T_max << endl;
+        file.close();
+    }
+    if (debug->p0){
+        file.open("./rawdata/p0_minmax.txt");
+        file << p0_min << endl << p0_max << endl;
+        file.close();
+    }
+    if (debug->fg){
+        file.open("./rawdata/fg_minmax.txt");
+        file << fg_min << endl << fg_max << endl;
+        file.close();
+    }
     return 0;
 }
