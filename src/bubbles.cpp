@@ -327,7 +327,7 @@ int runSimulation(int argc, char **argv)
 
     cout << "The program took " << time(NULL) - start_time << " seconds to run" << endl;
     ofstream runtime;
-    runtime.open("runtime.txt");
+    runtime.open((target_folder + "../runtime.txt").c_str());
     runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
     runtime.close();
     

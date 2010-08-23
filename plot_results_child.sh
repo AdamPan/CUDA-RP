@@ -23,8 +23,8 @@ for pre in $PREFIXES ; do
        sed -e "s/INPUTFILE/$i/" -e "s/OUTPUTFILE/$i/" -e "s/XBOUND/$1/g" -e "s/YBOUND/$2/" -e "s/XRES/$3/g" -e"s/YRES/$4/g" -e "s/TITLE/$TITLE/g" -e "s/LOWERRANGE/$plot_min/g" -e "s/UPPERRANGE/$plot_max/g" -e "s/ITERATOR/$6/g" ../plot.gnu | gnuplot
     done
     rm list
-
-    mencoder "mf://../images_$6/$pre*.png" -mf type=png:fps=10 -ovc lavc -lavcopts vcodec=msmpeg4v2:vbitrate=3000 -o ../videos_$6/$pre.avi
+./15
+    mencoder "mf://../images_$6/$pre*.png" -mf type=png:fps=10 -ovc lavc -lavcopts vcodec=msmpeg4v2:vbitrate=3000 -o ../videos_$6/$pre.avi > /dev/null 2>&1
 done
 
 rm ../plot.gnu
