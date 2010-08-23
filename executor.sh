@@ -1,6 +1,4 @@
 #! /bin/bash
-
-
 file_numbers=`ls confs/$1_[1-99].txt | sed "s/.txt//" | sed "s/confs\/$1_//"`
 target_dir_0="data"
 target_dir_1=`date -I`
@@ -38,5 +36,6 @@ for i in $file_numbers ; do
 
    mv results $target_dir_0/$target_dir_1/$target_dir_2/results_$i
    mv images $target_dir_0/$target_dir_1/$target_dir_2/images_$i
+   mv videos $target_dir_0/$target_dir_1/$target_dir_2/videos_$i
    mv runtime.txt $target_dir_0/$target_dir_1/$target_dir_2/runtime_$i.txt
 done

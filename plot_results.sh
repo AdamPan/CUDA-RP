@@ -1,5 +1,8 @@
 #! /bin/bash
-rm ./images/ -rf
+if [ -d ./images/ ] ; then
+   echo "Image folder exits, removing..."
+   rm ./images/ -rf
+fi
 mkdir ./images/
 cd ./results/
 ls *.txt | sed "s/.txt//" > list
@@ -20,4 +23,16 @@ for i in `cat list` ; do
    ;;
    esac
 done
+
+cd ..
+
+if [ -d ./videos/ ] ; then
+   echo "Video folder exists, removing..."
+   rm ./videos/ -rf
+fi
+
+mkdir videos
+mencoder "mf://images/T*.png" -mf type=png:fps=10 -ovc raw -vf format=yuy2 -o videos/Temperature.avi
+mencoder "mf://images/fg*.png" -mf type=png:fps=10 -ovc raw -vf format=yuy2 -o videos/Void_Fraction.avi
+mencoder "mf://images/p0*.png" -mf type=png:fps=10 -ovc raw -vf format=yuy2 -o videos/Pressure.avi
 rm list
