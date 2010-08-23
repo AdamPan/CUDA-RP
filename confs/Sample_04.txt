@@ -18,7 +18,7 @@ Courant Number	=	0.10
 dt0		=	0.10
 NSTEPMAX	=	12000
 TSTEPMAX	=	0
-DATA_SAVE	=	100
+DATA_SAVE	=	200
 Order		=	2
 Smooth Delta Function Band	=	2
 

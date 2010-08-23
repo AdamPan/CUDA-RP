@@ -31,12 +31,9 @@ for i in $file_numbers ; do
    XRES=$(((XRES*2) * 2))
    YRES=$(((YRES) * 2))
 
-   ./bin/linux/release/bubbles confs/$1_$i.txt
-   sh plot_rawdata.sh $XBOUND $YBOUND $XRES $YRES
+   sh spawn_child.sh $1 $i ./$target_dir_0/$target_dir_1/$target_dir_2 $XBOUND $YBOUND $XRES $YRES
 
-   mv rawdata $target_dir_0/$target_dir_1/$target_dir_2/rawdata_$i
-   mv images $target_dir_0/$target_dir_1/$target_dir_2/images_$i
-   mv videos $target_dir_0/$target_dir_1/$target_dir_2/videos_$i
-   mv runtime.txt $target_dir_0/$target_dir_1/$target_dir_2/runtime_$i.txt
-   cp confs/$1_$i.txt $target_dir_0/$target_dir_1/$target_dir_2/$1_$i.txt
+#   mv images $target_dir_0/$target_dir_1/$target_dir_2/images_$i
+#   mv videos $target_dir_0/$target_dir_1/$target_dir_2/videos_$i
+#   mv runtime.txt $target_dir_0/$target_dir_1/$target_dir_2/runtime_$i.txt
 done

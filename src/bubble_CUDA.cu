@@ -243,6 +243,31 @@ int solve_bubbles(	array_index_t	*array_index,
             exit(EXIT_FAILURE);
         }
 
+#ifdef _DEBUG_
+            if (system("clear"))
+            {
+                exit(EXIT_FAILURE);
+            }
+#else
+            printf("\r");
+#endif
+
+            // Display progress
+            if (sim_params->NSTEPMAX != 0)
+            {
+                printf("Running the simulation...\t\tnstep : %5i / %i", nstep, sim_params->NSTEPMAX);
+            }
+            else if (sim_params->TSTEPMAX !=0)
+            {
+                printf("Running the simulation...\t\ttstep : %4.2E / %4.2E", tstep, sim_params->TSTEPMAX);
+            }
+
+#ifdef _DEBUG_
+            printf("\n");
+#else
+            fflush(stdout);
+#endif
+
         // Save data at intervals
         if ((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0))
         {
@@ -274,30 +299,7 @@ int solve_bubbles(	array_index_t	*array_index,
             pthread_create(&save_thread, &pthread_custom_attr, save_step, (void *)(plan));
 #endif
 
-#ifdef _DEBUG_
-            if (system("clear"))
-            {
-                exit(EXIT_FAILURE);
-            }
-#else
-            printf("\r");
-#endif
 
-            // Display progress
-            if (sim_params->NSTEPMAX != 0)
-            {
-                printf("Running the simulation...\t\tnstep : %5i / %i", nstep, sim_params->NSTEPMAX);
-            }
-            else if (sim_params->TSTEPMAX !=0)
-            {
-                printf("Running the simulation...\t\ttstep : %4.2E / %4.2E", tstep, sim_params->TSTEPMAX);
-            }
-
-#ifdef _DEBUG_
-            printf("\n");
-#else
-            fflush(stdout);
-#endif
 
 #ifdef _DEBUG_
             // Display the mixture field variables in square grids in the interactive terminal

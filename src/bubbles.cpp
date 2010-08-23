@@ -11,6 +11,7 @@ extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVo
 double fg_max = -1e10, fg_min = 1e10;
 double p0_max = -1e10, p0_min = 1e10;
 double T_max = -1e10, T_min = 1e10;
+string target_folder = "./rawdata/";
 
 // Forward declarations
 int runSimulation(int argc, char **argv);
@@ -27,9 +28,11 @@ extern "C" int initialize_folders()
 {
     ofstream out_file;
     stringstream out;
-    string out_dir = "./rawdata/";
-    string clear_dir = "rm -rf ./rawdata";
-    string make_dir = "mkdir rawdata";
+
+    string out_dir = target_folder;
+    string clear_dir = "rm -rf " + target_folder;
+    string make_dir = "mkdir " + target_folder;
+
     if (system(clear_dir.c_str()))
     {
         exit(EXIT_FAILURE);
@@ -58,7 +61,7 @@ extern "C" void *save_step(void *threadArg)
 
     ofstream out_file;
     stringstream out;
-    string out_dir = "./rawdata/";
+    string out_dir = target_folder;
     if (debug->fg)
     {
         out.str("");
@@ -219,7 +222,7 @@ int runSimulation(int argc, char **argv)
     plane_wave_t	*plane_wave;
     debug_t		*debug;
 
-    if (argc == 2)
+    if (argc > 1)
     {
         in_file		=	argv[1];
     }
@@ -227,6 +230,10 @@ int runSimulation(int argc, char **argv)
     {
         cout << "Invalid number of arguments, please provide an input and output file" << endl;
         ok = false;
+    }
+    if (argc > 2)
+    {
+        target_folder     =   argv[2];
     }
 
     // Read Data
@@ -326,17 +333,17 @@ int runSimulation(int argc, char **argv)
     
     ofstream file;
     if (debug->T){
-        file.open("./rawdata/T_minmax.txt");
+        file.open((target_folder + "T_minmax.txt").c_str());
         file << T_min << endl << T_max << endl;
         file.close();
     }
     if (debug->p0){
-        file.open("./rawdata/p0_minmax.txt");
+        file.open((target_folder + "p0_minmax.txt").c_str());
         file << p0_min << endl << p0_max << endl;
         file.close();
     }
     if (debug->fg){
-        file.open("./rawdata/fg_minmax.txt");
+        file.open((target_folder + "fg_minmax.txt").c_str());
         file << fg_min << endl << fg_max << endl;
         file.close();
     }

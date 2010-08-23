@@ -1,5 +1,5 @@
 set term png enhanced size XRES, YRES
-set output '../images/OUTPUTFILE.png'
+set output '../images_ITERATOR/OUTPUTFILE.png'
 set lmargin 0
 set tmargin 0
 set rmargin 0
