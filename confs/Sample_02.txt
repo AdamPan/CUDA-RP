@@ -50,7 +50,11 @@ K0			=	26.2e-3
 [Debug]
 Display Lines	=	7
 Show fg		=	1
+Min fg		=	0
+Max fg		=	0.00025
 Show T		=	1
+Min T		=	0
+Max T		=	100e-6
 Show p		=	1
 Show p components	=	0
 Show v		=	0

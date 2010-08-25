@@ -13,9 +13,6 @@ double p0_max = -1e10, p0_min = 1e10;
 double T_max = -1e10, T_min = 1e10;
 string target_folder = "./rawdata/";
 
-// Forward declarations
-int runSimulation(int argc, char **argv);
-
 int main (int argc, char **argv)
 {
     // Execute
@@ -50,6 +47,7 @@ extern "C" void *save_step(void *threadArg)
     plan = *((struct output_plan_t*) threadArg);
     mixture_t mixture_h = plan.mixture_h;
     bubble_t bubbles_h = plan.bubbles_h;
+
     int step = plan.step;
     array_index_t *array_index = plan.array_index;
     grid_t *grid_size = plan.grid_size;
@@ -58,6 +56,33 @@ extern "C" void *save_step(void *threadArg)
     debug_t *debug = plan.debug;
 
     int index = 0;
+
+    if (debug->T)  mixture_h.T   = (double*) calloc(m2Vol,  sizeof(double));
+    if (debug->p0) mixture_h.p0  = (double*) calloc(m1Vol,  sizeof(double));
+    if (debug->fg) mixture_h.f_g = (double*) calloc(m2Vol,  sizeof(double));
+    if (debug->vxy)mixture_h.vx  = (double*) calloc(v_xVol, sizeof(double));
+    if (debug->vxy)mixture_h.vy  = (double*) calloc(v_yVol, sizeof(double));
+
+    if (debug->bubbles)
+    {
+        bubbles_h.pos  = (double2*)calloc(numBubbles, sizeof(double2));
+        bubbles_h.R_t  = (double*) calloc(numBubbles, sizeof(double));
+        bubbles_h.PG_p = (double*) calloc(numBubbles, sizeof(double));
+    }
+
+    if (debug->T)  cudaMemcpy2D(mixture_h.T,   sizeof(double)*i2m, plan.mixture_h.T,   sizeof(double)*i2m, sizeof(double)*i2m, j2m, cudaMemcpyHostToHost);
+    if (debug->p0) cudaMemcpy2D(mixture_h.p0,  sizeof(double)*i1m, plan.mixture_h.p0,  sizeof(double)*i1m, sizeof(double)*i1m, j1m, cudaMemcpyHostToHost);
+    if (debug->fg) cudaMemcpy2D(mixture_h.f_g, sizeof(double)*i2m, plan.mixture_h.f_g, sizeof(double)*i2m, sizeof(double)*i2m, j2m, cudaMemcpyHostToHost);
+    if (debug->vxy)cudaMemcpy2D(mixture_h.vx,  sizeof(double)*i2n, plan.mixture_h.vx,  sizeof(double)*i2n, sizeof(double)*i2n, j2m, cudaMemcpyHostToHost);
+    if (debug->vxy)cudaMemcpy2D(mixture_h.vy,  sizeof(double)*i2m, plan.mixture_h.vy,  sizeof(double)*i2m, sizeof(double)*i2m, j2n, cudaMemcpyHostToHost);
+
+    if (debug->bubbles)
+    {
+        cudaMemcpy(bubbles_h.pos,  plan.bubbles_h.pos,  sizeof(double2)*numBubbles, cudaMemcpyHostToHost);
+        cudaMemcpy(bubbles_h.R_t,  plan.bubbles_h.R_t,  sizeof(double)*numBubbles,  cudaMemcpyHostToHost);
+        cudaMemcpy(bubbles_h.PG_p, plan.bubbles_h.PG_p, sizeof(double)*numBubbles,  cudaMemcpyHostToHost);
+    }
+
 
     ofstream out_file;
     stringstream out;
@@ -205,6 +230,20 @@ extern "C" void *save_step(void *threadArg)
 //			}
         out_file.close();
     }
+
+    if (debug->T)  free(mixture_h.T);
+    if (debug->p0) free(mixture_h.p0);
+    if (debug->fg) free(mixture_h.f_g);
+    if (debug->vxy)free(mixture_h.vx);
+    if (debug->vxy)free(mixture_h.vy);
+
+    if (debug->bubbles)
+    {
+        free(bubbles_h.pos);
+        free(bubbles_h.R_t);
+        free(bubbles_h.PG_p);
+    }
+
     return 0;
 }
 
@@ -303,12 +342,18 @@ int runSimulation(int argc, char **argv)
 
         // Load Debug Parameters
         debug		= (debug_t*) malloc(sizeof(debug_t));
-        debug->display	= (int)	cf.Value("Debug", "Display Lines");
-        debug->fg	= (bool)cf.Value("Debug", "Show fg");
-        debug->p0	= (bool)cf.Value("Debug", "Show p");
-        debug->T	= (bool)cf.Value("Debug", "Show T");
-        debug->vxy	= (bool)cf.Value("Debug", "Show v");
-        debug->bubbles	= (bool)cf.Value("Debug", "Show Bubbles");
+        debug->display	= (int)	cf.Value("Debug", "Display Lines", 0);
+        debug->fg	= (bool)cf.Value("Debug", "Show fg", 0);
+        debug->p0	= (bool)cf.Value("Debug", "Show p", 0);
+        debug->T	= (bool)cf.Value("Debug", "Show T", 0);
+        debug->vxy	= (bool)cf.Value("Debug", "Show v", 0);
+        debug->bubbles	= (bool)cf.Value("Debug", "Show Bubbles", 0);
+        fg_min = (double)cf.Value("Debug", "Min fg", 1e10);
+        fg_max = (double)cf.Value("Debug", "Max fg",-1e10);
+        p0_min = (double)cf.Value("Debug", "Min p",  1e10);
+        p0_max = (double)cf.Value("Debug", "Max p", -1e10);
+        T_min  = (double)cf.Value("Debug", "Min T",  1e10);
+        T_max  = (double)cf.Value("Debug", "Max T", -1e10);
         if (bub_params->enabled == 0)
         {
             debug->bubbles = 0;

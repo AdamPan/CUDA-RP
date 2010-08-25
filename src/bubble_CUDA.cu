@@ -66,12 +66,12 @@ int solve_bubbles(	array_index_t	*array_index,
     unsigned int nstep = 0;
     double tstep = 0.0, tstepx = 0.0;
     int loop;
+    int pthread_count = 0;
     double resimax;
     double s1, s2;
-    bool rejoin = 0;
 
     // Data thread setup
-    pthread_t save_thread;
+    pthread_t save_thread[sim_params->NSTEPMAX/sim_params->DATA_SAVE];
     pthread_attr_t pthread_custom_attr;
     output_plan_t *plan;
 
@@ -271,18 +271,6 @@ int solve_bubbles(	array_index_t	*array_index,
         // Save data at intervals
         if ((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0))
         {
-
-            // If we're past thre first step, make sure to join with the data thread
-#ifdef _OUTPUT_
-            if (rejoin)
-            {
-                pthread_join(save_thread, NULL);
-            }
-            else
-            {
-                rejoin = 1;
-            }
-#endif
             // Copy over requested variables
             if (debug->p0)cudaMemcpy2D(	mixture_h.p0, sizeof(double)*i1m, mixture_htod.p0, p0_pitch, sizeof(double)*i1m, j1m, cudaMemcpyDeviceToHost);
             if (debug->fg)cudaMemcpy2D(	mixture_h.f_g, sizeof(double)*i2m, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost);
@@ -296,7 +284,7 @@ int solve_bubbles(	array_index_t	*array_index,
             // Assign the data thread with saving the requested variables
 #ifdef _OUTPUT_
             plan->step = nstep;
-            pthread_create(&save_thread, &pthread_custom_attr, save_step, (void *)(plan));
+            pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_step, (void *)(plan));
 #endif
 
 
@@ -328,7 +316,10 @@ int solve_bubbles(	array_index_t	*array_index,
     }
 
 #ifdef _OUTPUT_
-    pthread_join(save_thread, NULL);
+    for (int i = 0; i < pthread_count; i++)
+    {
+        pthread_join(save_thread[i], NULL);
+    }
 #endif
 
 #ifndef _DEBUG_
