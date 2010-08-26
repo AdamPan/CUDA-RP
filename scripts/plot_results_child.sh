@@ -25,5 +25,3 @@ for pre in $PREFIXES ; do
     rm list
     mencoder "mf://../images_$6/$pre*.png" -mf type=png:fps=10 -ovc lavc -lavcopts vcodec=msmpeg4v2:vbitrate=3000 -o ../videos_$6/$pre.avi > /dev/null 2>&1
 done
-
-rm ../plot.gnu

@@ -59,8 +59,7 @@ int solve_bubbles(	array_index_t	*array_index,
                    bub_params_t	*bub_params,
                    plane_wave_t	*plane_wave,
                    debug_t		*debug,
-                   int 		argc,
-                   char 		**argv)
+                   void 		*(*save_function)(void*))
 {
     // Variables needed for control structures
     unsigned int nstep = 0;
@@ -244,28 +243,28 @@ int solve_bubbles(	array_index_t	*array_index,
         }
 
 #ifdef _DEBUG_
-            if (system("clear"))
-            {
-                exit(EXIT_FAILURE);
-            }
+        if (system("clear"))
+        {
+            exit(EXIT_FAILURE);
+        }
 #else
-            printf("\r");
+        printf("\r");
 #endif
 
-            // Display progress
-            if (sim_params->NSTEPMAX != 0)
-            {
-                printf("Running the simulation...\t\tnstep : %5i / %i", nstep, sim_params->NSTEPMAX);
-            }
-            else if (sim_params->TSTEPMAX !=0)
-            {
-                printf("Running the simulation...\t\ttstep : %4.2E / %4.2E", tstep, sim_params->TSTEPMAX);
-            }
+        // Display progress
+        if (sim_params->NSTEPMAX != 0)
+        {
+            printf("Running the simulation...\t\tnstep : %5i / %i", nstep, sim_params->NSTEPMAX);
+        }
+        else if (sim_params->TSTEPMAX !=0)
+        {
+            printf("Running the simulation...\t\ttstep : %4.2E / %4.2E", tstep, sim_params->TSTEPMAX);
+        }
 
 #ifdef _DEBUG_
-            printf("\n");
+        printf("\n");
 #else
-            fflush(stdout);
+        fflush(stdout);
 #endif
 
         // Save data at intervals
@@ -284,10 +283,8 @@ int solve_bubbles(	array_index_t	*array_index,
             // Assign the data thread with saving the requested variables
 #ifdef _OUTPUT_
             plan->step = nstep;
-            pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_step, (void *)(plan));
+            pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_sph, (void *)(plan));
 #endif
-
-
 
 #ifdef _DEBUG_
             // Display the mixture field variables in square grids in the interactive terminal

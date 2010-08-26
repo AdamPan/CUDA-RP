@@ -36,6 +36,9 @@ for i in $file_numbers ; do
 
 
    cp confs/$1_$i.txt ./$result_folder/$current_date/$current_time/$1_$i.txt
+   echo ""
+   echo "Processing $1_$i.txt"
+   echo ""
    ./bin/linux/release/bubbles confs/$1_$i.txt ./$result_folder/$current_date/$current_time/rawdata_$i/
    sh ./scripts/plot_results_child.sh $XBOUND $YBOUND $XRES $YRES ./$result_folder/$current_date/$current_time $i &
 #   mv images $result_folder/$current_date/$current_time/images_$i
