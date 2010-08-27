@@ -24,8 +24,6 @@ int T_width, P_width, p0_width, p_width, pn_width, vx_width, vy_width, c_sl_widt
 int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
 int numBubbles = 0;
 
-
-
 /**************************************************************
  *                      Host Functions                        *
  **************************************************************/
@@ -59,7 +57,7 @@ int solve_bubbles(	array_index_t	*array_index,
                    bub_params_t	*bub_params,
                    plane_wave_t	*plane_wave,
                    debug_t		*debug,
-                   void 		*(*save_function)(void*))
+                   int			save_function)
 {
     // Variables needed for control structures
     unsigned int nstep = 0;
@@ -158,6 +156,8 @@ int solve_bubbles(	array_index_t	*array_index,
     /************************
      * Main simulation loop	*
      ************************/
+    
+    sleep(1);
     printf("Running the simulation\t\t");
     while (	((sim_params->NSTEPMAX != 0) && (nstep < sim_params->NSTEPMAX)) ||
             ((sim_params->TSTEPMAX != 0) && (tstep < sim_params->TSTEPMAX)))
@@ -283,7 +283,14 @@ int solve_bubbles(	array_index_t	*array_index,
             // Assign the data thread with saving the requested variables
 #ifdef _OUTPUT_
             plan->step = nstep;
-            pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_sph, (void *)(plan));
+            if (save_function & sph)
+            {
+            	pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_sph, (void *)(plan));
+            }
+            else if (save_function & ascii)
+            {
+            	pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_ascii, (void *)(plan));
+            }
 #endif
 
 #ifdef _DEBUG_
@@ -1497,3 +1504,4 @@ void checkCUDAError(	const char *msg)
     return;
 #endif
 }
+

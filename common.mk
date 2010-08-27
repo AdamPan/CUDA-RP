@@ -161,8 +161,7 @@ else
 	COMMONFLAGS += -O2
 	BINSUBDIR   := release
 	LIBSUFFIX   := 
-	NVCCFLAGS   += --compiler-options -fno-strict-aliasing --ptxas-options=-v
-	#-G --ptxas-options=-v
+	NVCCFLAGS   += --compiler-options -fno-strict-aliasing
 	CXXFLAGS    += -fno-strict-aliasing
 	CFLAGS      += -fno-strict-aliasing
 endif
@@ -296,6 +295,11 @@ ifeq ($(USECUBLAS),1)
   else
     LIB += -lcublas
   endif
+endif
+
+ifeq ($(USEBOOST),1)
+  LIB += -lboost_system
+  LIB += -lboost_program_options
 endif
 
 # Lib/exe configuration

@@ -7,7 +7,7 @@ CUFILES		:= src/bubble_CUDA.cu
 CU_DEPS     	:= inc/bubble_CUDA_kernel.cuh
 # C/C++ source files (gcc 4.3)
 SRCDIR		:= src/
-CCFILES		:= bubbles.cpp Chameleon.cpp ConfigFile.cpp SphDataType.cpp
+CCFILES		:= bubbles.cpp Chameleon.cpp ConfigFile.cpp SphDataType.cpp output_styles.cpp
 
 INCLUDES	+= -Iinc/
 
@@ -16,14 +16,17 @@ INCLUDES	+= -Iinc/
 # GENCODE_ARCH    += -gencode=arch=compute_13,code=sm_13 -gencode=arch=compute_13,code=compute_13
 # Compute 2.0 (Fermi)
 GENCODE_ARCH	+= -gencode=arch=compute_20,code=sm_20 -gencode=arch=compute_20,code=compute_20
-# Debug mode
-dbg		:= 0
-# Fast math functions
-fastmath	:= 0
-# Keep ptx
-keep		:= 0
+
+USEBOOST		:= 1
+
 # Default max registers per kernel
 maxregisters	:= 32
+
+# Debug mode
+dbg		:= 0
+# Keep ptx
+keep		:= 0
+
 
 # Rules / Targets
 include ./common.mk

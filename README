@@ -5,14 +5,20 @@ Author: Adam Pan
 
 1. Building
 
-    Requirements:
+    Runtime Requirements:
         - CUDA enabled graphics card (Compute 2.0)
         - NVIDIA developer drivers
         - CUDA Toolkit 3.0
+        - Boost C++ libraries
+        - gnuplot 4.x (optional)
+        - mencoder and ffmpeg (optional)
+
+    Build Requirements:
         - gcc 4.0+
+        - Boost C++ headers
 
     To compile the program, use "make".
-    The binary is located in "/bin/[platform]/release/"
+    The binary created will be located in "/bin/[platform]/release/"
 
 2. Usage
 
@@ -22,7 +28,7 @@ Author: Adam Pan
 
     Example:	bubbles confs/Sample.txt
 
-    The program outputs the results as plain-text tuples into "/results/".
+    The program outputs the results as plain-text tuples into "/rawdata/".
 
     I've also added some form of automation using shell scripts:
 
@@ -37,10 +43,10 @@ Author: Adam Pan
             configuration files matching "ConfName_x.txt", where x is any
             integer. It then runs through all the configuration files,
             storing the results (as well as plots) in timestamped folders in
-            "/data/".
+            "/results/".
 
 3. Notes
 
     The program is threadsafe, and does not interfere with the operation of
     CPU bound applications. In addition, multiple instances of the program
-    may be launched on the same graphics card.
+    may be launched on the same graphics card, although this is not recommended.

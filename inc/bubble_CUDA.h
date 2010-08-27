@@ -51,6 +51,7 @@
 #define TILE_BLOCK_HEIGHT	16
 #define LINEAR_BLOCK_SIZE	256
 
+
 struct __align__(16) debug_t
 {
     int display;	// Number of Lines to display during diagnostics
@@ -124,7 +125,7 @@ struct __align__(16) sim_params_t
     double	dt0;		// Timestep size
     int	order;		// Order of FDTD
     int	deltaBand;	// Bandwidth of smooth delta function
-    unsigned int	NSTEPMAX;	// Maximum number of steps in simulation
+    int	NSTEPMAX;	// Maximum number of steps in simulation
     double	TSTEPMAX;		// Maximum simulation time
     int	DATA_SAVE;	// Interval to save images
 };
@@ -224,7 +225,7 @@ struct output_plan_t
 
 void display(double data[], int xdim, int ydim, int num_lines, char **msg);
 
-int solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, void *(*save_function)(void*));
+int solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int save_function);
 
 int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 
