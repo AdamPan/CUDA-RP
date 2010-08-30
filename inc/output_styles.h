@@ -13,7 +13,6 @@
 #include <ctype.h>
 #include <stdlib.h>
 
-#include "ConfigFile.h"
 #include "SphDataType.h"
 #include "bubble_CUDA.h"
 

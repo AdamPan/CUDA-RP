@@ -20,8 +20,6 @@
 #include <boost/tokenizer.hpp>
 #include <boost/foreach.hpp>
 
-#include "ConfigFile.h"
-#include "SphDataType.h"
 #include "bubble_CUDA.h"
 #include "output_styles.h"
 

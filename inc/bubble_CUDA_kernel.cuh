@@ -1049,14 +1049,55 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
     }
 }
 
+// Generates a delta function mask around the target focal point
 
-
-
-
+//__global__ void AreaMaskInitKernel(double *area_sum_mask, int area_sum_mask_width)
+//{
+//	const int i = blockIdx.x * blockDim.x + threadIdx.x;
+//	const int j = blockIdx.y * blockDim.y + threadIdx.y;
+//	
+//	const int i2m = i + array_c.ista2m;
+//	const int j2m = j + array_c.jsta2m;
+//	
+//	if ((i2m <= array_c.iend2m) && (j2m <= array_c.jend2m)){
+//		area_sum_mask[area_sum_mask_width * j + i] = 
+//	}
+//}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //	Wrapper Functions
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+//int area_sum_mask_init(double *area_sum_mask, int area_sum_mask_width)
+//{
+//	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
+//	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
+//                   (j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
+
+//	AreaMaskInitKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (area_sum_mask, area_sum_mask_width);
+//	
+//	cudaStreamSynchronize(stream[0]);
+//	checkCUDAError("Failed to initialize Area Mask");
+//	return 0;
+//}
+
+double2 determine_focal_point(mixture_t mixture_htod, int T_width)
+{
+	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
+	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
+                   (j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
+    thrust::host_ptr<double> T_ptr(mixture_h.T);
+	thrust::device_vector<double> Temp(i2m*j2m);
+	thrust::copy(T_ptr, T_ptr + i2m * j2m, Temp.begin());
+	
+    thrust::device_vector<double> temperature_sum (i2m * j2m);
+    thrust::fill(temperature_sum.begin(), temperature_sum.end(), thrust::reduce(Temp.begin(), Temp.end()));
+    
+    thrust::device_vector<double> normalized_T(i2m * j2m);
+    thrust::transform(Temp.begin(), Temp.end(), temperature_sum.begin(), normalized_T.begin(), thrust::divides<double>());
+    
+    return 0;
+}
 
 int update_bubble_indices(cudaStream_t stream[], cudaEvent_t stop[])
 {

@@ -7,7 +7,7 @@ CUFILES		:= src/bubble_CUDA.cu
 CU_DEPS     	:= inc/bubble_CUDA_kernel.cuh
 # C/C++ source files (gcc 4.3)
 SRCDIR		:= src/
-CCFILES		:= bubbles.cpp Chameleon.cpp ConfigFile.cpp SphDataType.cpp output_styles.cpp
+CCFILES		:= bubbles.cpp SphDataType.cpp output_styles.cpp
 
 INCLUDES	+= -Iinc/
 

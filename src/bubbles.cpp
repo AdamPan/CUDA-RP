@@ -32,78 +32,23 @@ int runSimulation(int argc, char *argv[])
 
 	int save_function = none;
 
-    // Load Grid Parameters
+    // Grid parameters
     grid_size 	= (grid_t*) malloc(sizeof(grid_t));
 
-//    grid_size->X 	= (int) cf.Value("Grid Dimensions", "X");
-//    grid_size->Y 	= (int) cf.Value("Grid Dimensions", "Y");
-//    grid_size->LX 	= (double) cf.Value("Grid Dimensions", "LX");
-//    grid_size->LY 	= (double) cf.Value("Grid Dimensions", "LY");
-
-    // Load PML Parameters
+    // PML parameters
     PML		= 	(PML_t*) malloc(sizeof(PML_t));
 
-//    PML->X0		= (bool) cf.Value("PML", "X0");
-//    PML->X1		= (bool) cf.Value("PML", "X1");
-//    PML->Y0		= (bool) cf.Value("PML", "Y0");
-//    PML->Y1		= (bool) cf.Value("PML", "Y1");
-//    PML->NPML	= (int)	 cf.Value("PML", "Grid Number");
-//    PML->order	= (int)  cf.Value("PML", "Order");
-//    PML->sigma	= (double) cf.Value("PML", "Sigma");
-
-    // Load simulation parameters
+    // Simulation parameters
     sim_params	= (sim_params_t*) malloc(sizeof(sim_params_t));
 
-//    sim_params->cfl		= (double) cf.Value("Simulation Parameters", "Courant Number");
-//    sim_params->dt0		= (double) cf.Value("Simulation Parameters", "dt0");
-//    sim_params->NSTEPMAX	= (int)	cf.Value("Simulation Parameters", "NSTEPMAX");
-//    sim_params->TSTEPMAX	= (int)	cf.Value("Simulation Parameters", "TSTEPMAX");
-//    sim_params->DATA_SAVE	= (int)	cf.Value("Simulation Parameters", "DATA_SAVE");
-//    sim_params->order	= (int)	cf.Value("Simulation Parameters", "Order");
-//    sim_params->deltaBand	= (int)	cf.Value("Simulation Parameters", "Smooth Delta Function Band");
-
-    // Load bubble parameters
+    // Bubble parameters
     bub_params	= (bub_params_t*) calloc(1,sizeof(bub_params_t));
 
-//    bub_params->enabled	= (double) cf.Value("Bubble Properties", "Enable Bubbles");
-//    bub_params->fg0	= (double) cf.Value("Bubble Properties", "Initial Void Fraction");
-//    bub_params->R0	= (double) cf.Value("Bubble Properties", "Initial Radius");
-//    bub_params->PL0	= (double) cf.Value("Bubble Properties", "Initial Pressure");
-//    bub_params->T0	= (double) cf.Value("Bubble Properties", "Initial Temperature");
-//    bub_params->gam	= (double) cf.Value("Bubble Properties", "Gamma");
-//    bub_params->sig	= (double) cf.Value("Bubble Properties", "Surface Tension");
-//    bub_params->mu	= (double) cf.Value("Bubble Properties", "Viscosity of Water");
-//    bub_params->rho	= (double) cf.Value("Bubble Properties", "Density of Water");
-//    bub_params->K0	= (double) cf.Value("Bubble Properties", "K0");
-
-    // Load plane wave settings
+    // Plane wave settings
     plane_wave	= (plane_wave_t*) calloc(1,sizeof(plane_wave_t));
 
-//    plane_wave->amp		= (double) cf.Value("Plane Wave", "Amplitude");
-//    plane_wave->freq	= (double) cf.Value("Plane Wave", "Frequency");
-//    plane_wave->f_dist	= (double) cf.Value("Plane Wave", "Focal Distance");
-//    plane_wave->box_size	= (double) cf.Value("Plane Wave", "Box Size");
-//    plane_wave->cylindrical = (bool)   cf.Value("Plane Wave", "Cylindrical");
-//    plane_wave->on_wave	= (int)    cf.Value("Plane Wave", "On Wave");
-//    plane_wave->off_wave	= (int)    cf.Value("Plane Wave", "Off Wave");
-//    plane_wave->Plane_V	= (bool)   cf.Value("Plane Wave", "Plane Wave (V)");
-//    plane_wave->Plane_P	= (bool)   cf.Value("Plane Wave", "Plane Wave (P)");
-//    plane_wave->Focused_V	= (bool)   cf.Value("Plane Wave", "Focused Wave (V)");
-//    plane_wave->Focused_P	= (bool)   cf.Value("Plane Wave", "Focused Wave (P)");
-
-    // Load Debug Parameters
+    // Debug parameters
     debug		= (debug_t*) malloc(sizeof(debug_t));
-//    debug->display	= (int)	cf.Value("Debug", "Display Lines", 0);
-//    debug->fg	= (bool)cf.Value("Debug", "Show fg", 0);
-//    debug->p0	= (bool)cf.Value("Debug", "Show p", 0);
-//    debug->T	= (bool)cf.Value("Debug", "Show T", 0);
-//    debug->vxy	= (bool)cf.Value("Debug", "Show v", 0);
-//    debug->bubbles	= (bool)cf.Value("Debug", "Show Bubbles", 0);
-//    if (bub_params->enabled == 0)
-//    {
-//        debug->bubbles = 0;
-//    }
-
 
 	po::options_description cmd_opts("Command line options"),
 							generic_opts("Generic options"),
@@ -111,12 +56,12 @@ int runSimulation(int argc, char *argv[])
 							hidden_opts("Hidden options");
 	cmd_opts.add_options()
 		("help,h", "Output this help message.")
-		("input-file", po::value<string>()->multitoken(), "input file")
+		("help-all", "Output a complete list of options.")
 	;
 	generic_opts.add_options()
 		("ascii,a", "Save plaintext files.")
-		("sph,s", "Save sph files. This option has precedence over --ascii.")
-		("directory,d", po::value<string>()->default_value("./rawdata/"), "Save into a target directory (default: ./rawdata/).")
+		("sph,s", "Save sph files. This option has\nprecedence over --ascii.")
+		("directory,d", po::value<string>()->default_value("./rawdata/"), "Save into a target directory.")
 	;
 	file_opts.add_options()
 		("grid.x", po::value<int>(&grid_size->X))
@@ -160,13 +105,21 @@ int runSimulation(int argc, char *argv[])
 		("bubbles.K0", po::value<double>(&bub_params->K0))
 		("debug.display_dim", po::value<int>(&debug->display)->default_value(4))
 		("debug.fg", po::value<bool>(&debug->fg  )->default_value(true )->implicit_value(true))
+		("debug.fg_min", po::value<double>())
+		("debug.fg_max", po::value<double>())
 		("debug.T",  po::value<bool>(&debug->T  )->default_value(true )->implicit_value(true))
+		("debug.T_min", po::value<double>())
+		("debug.T_max", po::value<double>())
 		("debug.p",  po::value<bool>(&debug->p0 )->default_value(false)->implicit_value(true))
+		("debug p_min", po::value<double>())
+		("debug.p_max", po::value<double>())
 		("debug.v",  po::value<bool>(&debug->vxy)->default_value(false)->implicit_value(true))
+		("debug.v_min", po::value<double>())
+		("debug.v_max", po::value<double>())
 		("debug.bubbles", po::value<bool>(&debug->bubbles)->default_value(10))
 	;
 	hidden_opts.add_options()
-		("input-file", po::value< vector<string> >(), "input file")
+		("input-file", po::value<string>(), "input file")
 	;
 	
 	po::options_description cmd_line_opts;
@@ -183,10 +136,16 @@ int runSimulation(int argc, char *argv[])
 	po::store(po::command_line_parser(argc, argv).options(cmd_line_opts).positional(pos_opts).allow_unregistered().run(), vm);
 	po::notify(vm);
 	
+	if (vm.count("help-all")){
+		visible_opts.add(file_opts);
+		cout << visible_opts << endl;
+		return 0;
+	}
+	
 	if (vm.count("help"))
 	{
-		cout << visible_opts << "\n";
-		return 1;
+		cout << visible_opts << endl;
+		return 0;
 	}
 	
 	if (vm.count("ascii"))
@@ -203,10 +162,19 @@ int runSimulation(int argc, char *argv[])
 	{
 		in_file = vm["input-file"].as<string>();
 	}
+	else
+	{
+		cout << "Please specify an input configuration file" << endl;
+		return 1;
+	}
 
 	if (vm.count("directory"))
 	{
 		target_dir = vm["directory"].as<string>();
+		if (target_dir.find_last_of("/") != target_dir.length() - 1)
+		{
+			target_dir += "/";
+		}
 	}
 
     // Read Configuration File
@@ -218,7 +186,7 @@ int runSimulation(int argc, char *argv[])
 
 	cout << "Input file is " << in_file << endl;
 	cout << "Saving results to " << target_dir << endl;
-	cout << "Save format is " << (vm.count("sph") ? "sph" : "ASCII plaintext") << endl;
+	cout << "Save format is " << (save_function == sph ? "sph" : "ASCII plaintext") << endl << endl;
 
     array_index_t *array_index = (array_index_t *) calloc(1, sizeof(array_index_t));
 
@@ -237,29 +205,29 @@ int runSimulation(int argc, char *argv[])
     runtime.close();
 
     ofstream file;
-//    if (debug->T)
-//    {
-//        T_min  = (double)cf.Value("Debug", "Min T",  T_min);
-//        T_max  = (double)cf.Value("Debug", "Max T",  T_max);
-//        file.open((target_dir + "T_minmax.txt").c_str());
-//        file << T_min << endl << T_max << endl;
-//        file.close();
-//    }
-//    if (debug->p0)
-//    {
-//        p0_min = (double)cf.Value("Debug", "Min p",  p0_min);
-//        p0_max = (double)cf.Value("Debug", "Max p",  p0_max);
-//        file.open((target_dir + "p0_minmax.txt").c_str());
-//        file << p0_min << endl << p0_max << endl;
-//        file.close();
-//    }
-//    if (debug->fg)
-//    {
-//        fg_min = (double)cf.Value("Debug", "Min fg", fg_min);
-//        fg_max = (double)cf.Value("Debug", "Max fg", fg_max);
-//        file.open((target_dir + "fg_minmax.txt").c_str());
-//        file << fg_min << endl << fg_max << endl;
-//        file.close();
-//    }
+    if (debug->T)
+    {
+		if (vm.count("debug.T_min")) T_min = vm["debug.T_min"].as<double>();
+        if (vm.count("debug.T_max")) T_max = vm["debug.T_max"].as<double>();
+        file.open((target_dir + "T_minmax.txt").c_str());
+        file << T_min << endl << T_max << endl;
+        file.close();
+    }
+    if (debug->p0)
+    {
+        if (vm.count("debug.p_min")) p0_min = vm["debug.p_min"].as<double>();
+        if (vm.count("debug.p_max")) p0_max = vm["debug.p_max"].as<double>();
+        file.open((target_dir + "p0_minmax.txt").c_str());
+        file << p0_min << endl << p0_max << endl;
+        file.close();
+    }
+    if (debug->fg)
+    {
+        if (vm.count("debug.fg_min")) fg_min = vm["debug.fg_min"].as<double>();
+        if (vm.count("debug.fg_max")) fg_max = vm["debug.fg_max"].as<double>();
+        file.open((target_dir + "fg_minmax.txt").c_str());
+        file << fg_min << endl << fg_max << endl;
+        file.close();
+    }
     return 0;
 }

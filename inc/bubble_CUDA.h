@@ -36,6 +36,7 @@
 #include "thrust/is_sorted.h"
 #include "thrust/gather.h"
 #include "thrust/scatter.h"
+#include "thrust/transform.h"
 
 #define TRUE 1
 #define FALSE 0

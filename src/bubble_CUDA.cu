@@ -66,6 +66,12 @@ int solve_bubbles(	array_index_t	*array_index,
     int pthread_count = 0;
     double resimax;
     double s1, s2;
+    
+    // Variables for PID controller
+//    double *area_sum_mask;
+//    size_t area_sum_mask_pitch;
+//    cudaMallocPitch((void **)&area_sum_mask, 	&area_sum_mask_pitch,	sizeof(double)*i2n, j2m);
+//    int area_sum_mask_width = area_sum_mask_pitch / sizeof(double);
 
     // Data thread setup
     pthread_t save_thread[sim_params->NSTEPMAX/sim_params->DATA_SAVE];
@@ -119,7 +125,7 @@ int solve_bubbles(	array_index_t	*array_index,
 
     // Allocate memory on the device
     printf("Allocating Memory...");
-    if (initialize_CUDA_variables(grid_size, PML, sim_params, plane_wave,array_index, mix_params, bub_params))
+    if (initialize_CUDA_variables(grid_size, PML, sim_params, plane_wave, array_index, mix_params, bub_params))
     {
         exit(EXIT_FAILURE);
     }
@@ -142,6 +148,10 @@ int solve_bubbles(	array_index_t	*array_index,
     {
         exit(EXIT_FAILURE);
     }
+//    if (area_sum_mask_init(area_sum_mask, area_sum_mask_width))
+//    {
+//    	exit(EXIT_FAILURE);
+//    }
     printf("\tdone\n\n");
 
     // Assign Plan pointers
@@ -208,7 +218,7 @@ int solve_bubbles(	array_index_t	*array_index,
                 }
 
                 // Solve Rayleigh-Plesset Equations
-                max_iter = solve_bubble_radii(bubbles_htod, stream, stop);
+                max_iter = max(solve_bubble_radii(bubbles_htod, stream, stop), max_iter);
 
                 // Calculate Void Fraction
                 if (calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stream, stop))
