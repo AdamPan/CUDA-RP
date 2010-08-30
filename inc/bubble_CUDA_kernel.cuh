@@ -1081,23 +1081,26 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
 //	return 0;
 //}
 
-double2 determine_focal_point(mixture_t mixture_htod, int T_width)
-{
-	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
-	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
-                   (j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
-    thrust::host_ptr<double> T_ptr(mixture_h.T);
-	thrust::device_vector<double> Temp(i2m*j2m);
-	thrust::copy(T_ptr, T_ptr + i2m * j2m, Temp.begin());
-	
-    thrust::device_vector<double> temperature_sum (i2m * j2m);
-    thrust::fill(temperature_sum.begin(), temperature_sum.end(), thrust::reduce(Temp.begin(), Temp.end()));
-    
-    thrust::device_vector<double> normalized_T(i2m * j2m);
-    thrust::transform(Temp.begin(), Temp.end(), temperature_sum.begin(), normalized_T.begin(), thrust::divides<double>());
-    
-    return 0;
-}
+//double2 determine_focal_point(mixture_t mixture_htod, array_t *array_index, int T_width)
+//{
+//	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
+//	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
+//                   (j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
+//	thrust::device_ptr<double> T_ptr(mixture_htod.T);
+
+//    thrust::device_vector<double> temperature_sum (i2m * j2m);
+//    thrust::fill(temperature_sum.begin(), temperature_sum.end(), thrust::reduce(T_ptr, T_ptr + i2m * j2m));
+//    
+//    thrust::device_vector<double> normalized_T(i2m * j2m);
+//    thrust::transform(Temp.begin(), Temp.end(), temperature_sum.begin(), normalized_T.begin(), thrust::divides<double>());
+//    
+//    thrust::counting_iterator<int> xpoints(array_index->ista2m);
+//    thrust::counting_iterator<int> ypoints(array_index->jsta2m);
+//    
+//    
+//    
+//    return make_double2(0.0, 0.0);
+//}
 
 int update_bubble_indices(cudaStream_t stream[], cudaEvent_t stop[])
 {

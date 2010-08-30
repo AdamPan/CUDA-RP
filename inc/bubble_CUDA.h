@@ -5,7 +5,6 @@
 #include <iostream>
 #include <cuda.h>
 #include <assert.h>
-#include <complex.h>
 #include <cstddef>
 #include <vector_types.h>
 #include <math.h>

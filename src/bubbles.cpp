@@ -147,16 +147,6 @@ int runSimulation(int argc, char *argv[])
 		cout << visible_opts << endl;
 		return 0;
 	}
-	
-	if (vm.count("ascii"))
-	{
-		save_function |= ascii;
-	}
-	
-	if (vm.count("sph"))
-	{
-		save_function |= sph;
-	}
 
 	if (vm.count("input-file"))
 	{
@@ -183,6 +173,16 @@ int runSimulation(int argc, char *argv[])
 	ifstream ifs(in_file.c_str());
 	po::store(po::parse_config_file(ifs, cfg_file_opts, true), vm);
 	po::notify(vm);
+
+	if (vm.count("ascii"))
+	{
+		save_function |= ascii;
+	}
+	
+	if (vm.count("sph"))
+	{
+		save_function |= sph;
+	}
 
 	cout << "Input file is " << in_file << endl;
 	cout << "Saving results to " << target_dir << endl;

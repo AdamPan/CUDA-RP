@@ -26,6 +26,9 @@ public:
     bool Allocate();
     bool Allocate(const float value);
     bool Allocate(const int dims[3]);
+    bool SetPitch(const float pitch[3]);
+    bool SetOrigin(const float origin[3]);
+    bool SetTimeStep(const float time, const int step);
     bool Deallocate();
     bool LoadSph(const std::string fname);
     bool SaveSph(const std::string fname);
@@ -56,6 +59,29 @@ inline float* SphData::GetPointer(const int i, const int j, const int k)
 inline void SphData::SetValue(const int i, const int j, const int k, const float data)
 {
     m_pData[ i + j * m_dims[0] + k * m_dims[0] * m_dims[1] ] = data;
+}
+
+inline bool SphData::SetPitch(const float pitch[3])
+{
+	m_pitch[0] = pitch[0];
+	m_pitch[1] = pitch[1];
+	m_pitch[2] = pitch[2];
+	return true;
+}
+
+inline bool SphData::SetOrigin(const float origin[3])
+{
+	m_orig[0] = origin[0];
+	m_orig[1] = origin[1];
+	m_orig[2] = origin[3];
+	return true;
+}
+
+inline bool SphData::SetTimeStep(const float time, const int step)
+{
+	m_time = time;
+	m_step = step;
+	return true;
 }
 
 class SphXData : public SphData

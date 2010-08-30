@@ -29,6 +29,7 @@ SphData::~SphData()
 bool SphData::Allocate()
 {
     m_pData = new float[ m_dims[0] * m_dims[1] * m_dims[2] ];
+    m_pitch[0] = sizeof(float) * m_dims[0];
     for ( int n = 0; n < m_dims[0] * m_dims[1] * m_dims[2]; n++ )
     {
         m_pData[n] = 0.;
@@ -144,6 +145,8 @@ bool SphData::SaveSph(const std::string fname)
     cout << "Save file name is " << fname << endl;
 #endif
     ofstream os( fname.c_str(), ios::binary);
+    
+	
 
     if (! os.is_open() ) return false;
 

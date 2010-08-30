@@ -1,3 +1,4 @@
+sph	=	1
 [grid]
 x	=	300
 y	=	600
@@ -16,7 +17,7 @@ order	=	2
 [simulation]
 cfl	=	0.10
 dt0		=	0.10
-n_step_max	=	4000
+n_step_max	=	12000
 t_step_max	=	0
 save_interval	=	100
 order		=	2
