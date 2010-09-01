@@ -9,6 +9,8 @@ extern double p0_max, p0_min;
 extern double T_max, T_min;
 extern string target_dir;
 
+
+
 extern "C" int initialize_folders()
 {
     ofstream out_file;
@@ -39,6 +41,7 @@ extern "C" void *save_sph(void *threadArg)
     bubble_t bubbles_h = plan.bubbles_h;
 
     int step = plan.step;
+    double tstep = plan.tstep;
     array_index_t *array_index = plan.array_index;
     grid_t *grid_size = plan.grid_size;
     sim_params_t *sim_params = plan.sim_params;
@@ -47,6 +50,8 @@ extern "C" void *save_sph(void *threadArg)
 
     int index = 0;
     int dim[3] = { grid_size->X + 1, grid_size->Y + 1, 1 };
+    float origin[3] = { 0.0f, 0.0f, 0.0f };
+    float pitch[3] = { (float)grid_size->dx, (float)grid_size->dy, 1.0f };
 
     SphData fg_sph, p0_sph, T_sph;
     stringstream out;
@@ -54,7 +59,7 @@ extern "C" void *save_sph(void *threadArg)
 
     if (debug->fg)
     {
-        fg_sph.Allocate(dim);
+        fg_sph.Init(dim, origin, pitch, tstep, step);
         for (int j = 0; j <= grid_size->Y; j++)
         {
             for (int i = 0; i <= grid_size->X; i++)
@@ -69,7 +74,7 @@ extern "C" void *save_sph(void *threadArg)
 
     if (debug->p0)
     {
-        p0_sph.Allocate(dim);
+		p0_sph.Init(dim, origin, pitch, tstep, step);
         for (int j = 0; j <= grid_size->Y; j++)
         {
             for (int i = 0; i <= grid_size->X; i++)
@@ -84,7 +89,7 @@ extern "C" void *save_sph(void *threadArg)
 
     if (debug->T)
     {
-        T_sph.Allocate(dim);
+        T_sph.Init(dim, origin, pitch, tstep, step);
         for (int j = 0; j <= grid_size->Y; j++)
         {
             for (int i = 0; i <= grid_size->X; i++)

@@ -4,7 +4,7 @@ EXECUTABLE 	:= bubbles
 CUFILES		:= src/bubble_CUDA.cu 
 #src/fortran_wrappers.cu
 # CUDA dependencies
-CU_DEPS     	:= inc/bubble_CUDA_kernel.cuh
+CU_DEPS     	:= inc/bubble_CUDA_kernel.cuh inc/double_vector_math.cuh inc/thrust_tuples.cuh
 # C/C++ source files (gcc 4.3)
 SRCDIR		:= src/
 CCFILES		:= bubbles.cpp SphDataType.cpp output_styles.cpp

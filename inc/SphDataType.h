@@ -23,6 +23,7 @@ public:
     SphData();
     virtual~ SphData();
 
+	bool Init(int dim[], float origin[], float pitch[], float tstep, int step);
     bool Allocate();
     bool Allocate(const float value);
     bool Allocate(const int dims[3]);
@@ -45,6 +46,15 @@ public:
     float* GetPointer(const int i, const int j, const int k);
     void SetValue(const int i, const int j, const int k, const float data);
 };
+
+inline bool SphData::Init(int dim[], float origin[], float pitch[], float tstep, int step)
+{
+	Allocate(dim);
+	SetOrigin(origin);
+	SetPitch(pitch);
+	SetTimeStep(tstep, step);
+	return true;
+}
 
 inline float& SphData::GetValue(const int i, const int j, const int k)
 {

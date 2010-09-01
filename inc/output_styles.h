@@ -13,8 +13,8 @@
 #include <ctype.h>
 #include <stdlib.h>
 
-#include "SphDataType.h"
 #include "bubble_CUDA.h"
+#include "SphDataType.h"
 
 extern "C" int initialize_folders();
 extern "C" void *save_sph(void *threadArg);

@@ -1,6 +1,7 @@
 #include "bubble_CUDA.h"
 #include "complex.cuh"
 #include "double_vector_math.cuh"
+#include "thrust_tuples.cuh"
 
 #define BUB_RAD_MAX_THREADS 256
 #define BUB_RAD_MIN_BLOCKS 2
@@ -31,6 +32,8 @@ __device__ __constant__	plane_wave_t	plane_wave_c;	// Plane Wave
 __device__ __constant__	double		tstep_c;	// Current time
 __device__ __constant__ double3		delta_coef;	// Coefficients used to save ops in calculating the smooth delta function
 
+__device__ __constant__ double2		focal_point_c;	// x, y - focal point
+__device__ __constant__ double		focal_dist_c;		// focal distance
 
 /* Forward Declarations */
 
@@ -56,6 +59,8 @@ static __host__ __device__ doublecomplex Upsilon(const doublecomplex , const dou
 static __host__ __device__ doublecomplex solveLp(const doublecomplex, const double);	// Calculates Lp_N
 static __host__ __device__ double solvePG(const double, const double, const double, const double, const double, const doublecomplex, const bub_params_t);	// Calculates PG
 
+
+
 /* Static utility functions */
 
 // Sorts bubbles
@@ -78,6 +83,13 @@ static __inline__ __device__ double atomicAdd(double * addr, double val)
 
     return old;	// We return the old value, to conform with other atomicAdd() implementations
 }
+
+template <typename T>
+inline T clamp(T x, T a, T b)
+{
+    return x < a ? a : (x > b ? b : x);
+}
+
 
 // intrinsic epsilon for double
 static __inline__ __host__ __device__ double epsilon(double val)
@@ -689,11 +701,11 @@ __global__ void VelocityBoundaryKernel(int vx_width, int vy_width)
             {
                 ym = 0.0;
                 xm = ((double)i2m - 0.5) * grid_c.dx;
-                s1 = sqrt(	((plane_wave_c.fp.x - xm)*(plane_wave_c.fp.x - xm)) +
-                           ((plane_wave_c.fp.y - ym)*(plane_wave_c.fp.y - ym)));
-                if (s1 <= plane_wave_c.f_dist)
+                s1 = sqrt(	((focal_point_c.x - xm)*(focal_point_c.x - xm)) +
+                           ((focal_point_c.y - ym)*(focal_point_c.y - ym)));
+                if (s1 <= focal_dist_c)
                 {
-                    s1 = max(tstep_c - (plane_wave_c.f_dist - s1) / mix_params_c.cs_inf, 0.0);
+                    s1 = max(tstep_c - (focal_dist_c - s1) / mix_params_c.cs_inf, 0.0);
                     s2 = (fmod(s1,((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq));
                     if (s2 < ((double)plane_wave_c.on_wave/plane_wave_c.freq))
                     {
@@ -829,10 +841,10 @@ __global__ void MixtureBoundaryPressureKernel(int p0_width)
             {
                 double ym = -0.5 * grid_c.dy;
                 double xm = (i1m - 0.5) * grid_c.dx;
-                s1 = sqrt((plane_wave_c.fp.x - xm) * (plane_wave_c.fp.x - xm) + (plane_wave_c.fp.y - ym) * (plane_wave_c.fp.y - ym));
-                if (s1 <= plane_wave_c.f_dist)
+                s1 = sqrt((focal_point_c.x - xm) * (focal_point_c.x - xm) + (focal_point_c.y - ym) * (focal_point_c.y - ym));
+                if (s1 <= focal_dist_c)
                 {
-                    s1 = max(tstep_c - (plane_wave_c.f_dist - s1)/mix_params_c.cs_inf, 0.0);
+                    s1 = max(tstep_c - (focal_dist_c - s1)/mix_params_c.cs_inf, 0.0);
                     s2 = fmod(s1, ((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq);
                     if (s2 < (double)plane_wave_c.on_wave/plane_wave_c.freq)
                     {
@@ -980,6 +992,7 @@ __global__ void MixtureTemperatureKernel(int T_width, int Ex_width, int Ey_width
         s0 = 2.0 * (0.22) * 0.115129255 / ( mix_params_c.rho_inf * mix_params_c.cs_inf * plane_wave_c.omega * plane_wave_c.omega) * s0*s0;
         double Q = mixture_c.Work[(jm - array_c.jsta2m) * Work_width + im - array_c.ista2m] + s0;
 
+		mixture_c.Work[(jm-array_c.jsta2m) * Work_width + im - array_c.ista2m] = Q;
         double s1 = (mixture_c.Ex[Ex_i] - mixture_c.Ex[Ex_i - 1]) * grid_c.rdx;
         double s2 = (mixture_c.Ey[Ey_i] - mixture_c.Ey[Ey_i - Ey_width]) * grid_c.rdy;
         mixture_c.T[(jm - array_c.jsta2m) * T_width + im - array_c.ista2m] += mix_params_c.dt * (s1 + s2 + Q ) / (mixture_c.rho_m[(jm - array_c.jsta1m) * rhom_width + im - array_c.ista1m] * mixture_c.C_pm[(jm - array_c.jsta1m) * Cpm_width + im - array_c.ista1m]);
@@ -1081,26 +1094,57 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
 //	return 0;
 //}
 
-//double2 determine_focal_point(mixture_t mixture_htod, array_t *array_index, int T_width)
-//{
-//	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
-//	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
-//                   (j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
-//	thrust::device_ptr<double> T_ptr(mixture_htod.T);
+double2 determine_focal_point(double *Q, array_index_t *array_index, grid_t *grid_size, int Q_width)
+{
+	thrust::device_ptr<double> Q_ptr(Q);
+	typedef thrust::tuple<bool, double> max_type;
+	typedef thrust::tuple<bool, double, double> weighted_grid_type;
+	
+	max_type	m_init(true, 0.0);
+	weighted_grid_type	wg_init(true, 0, 0);
+	
+	padded_grid_tuple<int, double>	unary_op1(i2m, Q_width);
+	reduce_max_tuple<int, double>	binary_op1;
 
-//    thrust::device_vector<double> temperature_sum (i2m * j2m);
-//    thrust::fill(temperature_sum.begin(), temperature_sum.end(), thrust::reduce(T_ptr, T_ptr + i2m * j2m));
-//    
-//    thrust::device_vector<double> normalized_T(i2m * j2m);
-//    thrust::transform(Temp.begin(), Temp.end(), temperature_sum.begin(), normalized_T.begin(), thrust::divides<double>());
-//    
-//    thrust::counting_iterator<int> xpoints(array_index->ista2m);
-//    thrust::counting_iterator<int> ypoints(array_index->jsta2m);
-//    
-//    
-//    
-//    return make_double2(0.0, 0.0);
-//}
+    max_type max_result = \
+    	thrust::transform_reduce(
+    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)),
+    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)) + i2m * j2m,
+    		unary_op1,
+    		m_init,
+    		binary_op1
+    	);
+	printf("\tmax is %4.2E\t", thrust::get<1>(max_result));
+	weighted_coordinate_tuple<int, double> unary_op2(i2m, Q_width, grid_size->dx, grid_size->dy, thrust::get<1>(max_result));
+	reduce_add_tuple<int, double>          binary_op2;
+
+	weighted_grid_type wg_result = \
+		thrust::transform_reduce(
+			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)),
+			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)) + i2m * j2m,
+			unary_op2,
+			wg_init,
+			binary_op2
+		);
+	printf("focal point is (%4.2E, %4.2E)", thrust::get<1>(wg_result), thrust::get<2>(wg_result));
+    return make_double2(thrust::get<1>(wg_result), thrust::get<2>(wg_result));
+}
+
+double2 focal_PID(double2 target, double2 actual, double2 prev, double2 *d_err, double2 *err_total, double dt)
+{
+	double K	=	1.0 * 0.65;
+	double Pc	=	5000.0;
+	double D	=	K * 0.12 * Pc;
+	double I	=	K / (0.5 * Pc);
+	double2 err = (target - actual);
+	if (abs(err.y/target.y) < 0.2)
+		*err_total = *err_total + err;
+	*d_err		= (0.5)*(*d_err) + (0.5)*(actual-prev);
+	printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
+	printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
+	printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);
+	return target + (K * err + D * (*d_err) + I * (*err_total));
+}
 
 int update_bubble_indices(cudaStream_t stream[], cudaEvent_t stop[])
 {

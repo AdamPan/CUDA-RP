@@ -3,6 +3,9 @@ using namespace std;
 
 namespace po = boost::program_options;
 
+extern thrust::host_vector<double2> focalpoint;
+extern thrust::host_vector<double2> control;
+
 double fg_max = -1e10, fg_min = 1e10;
 double p0_max = -1e10, p0_min = 1e10;
 double T_max = -1e10, T_min = 1e10;
@@ -85,6 +88,9 @@ int runSimulation(int argc, char *argv[])
 		("plane_wave.amp", po::value<double>(&plane_wave->amp))
 		("plane_wave.freq", po::value<double>(&plane_wave->freq))
 		("plane_wave.focal_dist", po::value<double>(&plane_wave->f_dist))
+		("plane_wave.pid", po::value<bool>(&plane_wave->pid)->default_value(false))
+		("plane_wave.pid_start_step", po::value<int>(&plane_wave->pid_start_step)->default_value(1))
+		("plane_wave.init_control", po::value<double>(&plane_wave->init_control)->default_value(0.0))
 		("plane_wave.box_size", po::value<double>(&plane_wave->box_size))
 		("plane_wave.cylindrical", po::value<bool>(&plane_wave->cylindrical))
 		("plane_wave.on_wave", po::value<int>(&plane_wave->on_wave))
@@ -203,6 +209,22 @@ int runSimulation(int argc, char *argv[])
     runtime.open((target_dir + "../runtime.txt").c_str());
     runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
     runtime.close();
+
+	ofstream fp_file;
+	fp_file.open((target_dir + "focalpoint_actual_T.txt").c_str());
+	for (int i = 0; i < focalpoint.size(); i++)
+	{
+		fp_file << i << "\t" << focalpoint[i].y << endl;
+	}
+	fp_file.close();
+
+	fp_file.open((target_dir + "focalpoint_controller_T.txt").c_str());
+	for (int i = 0; i < control.size(); i++)
+	{
+		fp_file << i + 8000 << "\t" << control[i].y << endl;
+	}
+	fp_file.close();
+
 
     ofstream file;
     if (debug->T)

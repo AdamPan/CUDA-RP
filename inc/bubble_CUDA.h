@@ -26,16 +26,21 @@
 #include <cutil.h>
 //#include <cudpp.h>
 
-#include "thrust/host_vector.h"
-#include "thrust/device_vector.h"
-#include "thrust/extrema.h"
-#include "thrust/reduce.h"
-#include "thrust/functional.h"
-#include "thrust/sort.h"
-#include "thrust/is_sorted.h"
-#include "thrust/gather.h"
-#include "thrust/scatter.h"
-#include "thrust/transform.h"
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/extrema.h>
+#include <thrust/reduce.h>
+#include <thrust/functional.h>
+#include <thrust/sort.h>
+#include <thrust/is_sorted.h>
+#include <thrust/gather.h>
+#include <thrust/scatter.h>
+#include <thrust/transform.h>
+#include <thrust/transform_reduce.h>
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/zip_iterator.h>
+
+#include "output_styles.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -51,6 +56,7 @@
 #define TILE_BLOCK_HEIGHT	16
 #define LINEAR_BLOCK_SIZE	256
 
+typedef thrust::tuple<bool, double> area_sum_t;
 
 struct __align__(16) debug_t
 {
@@ -110,6 +116,9 @@ struct __align__(16) plane_wave_t
     double	amp;		// Wave amplitude
     double	freq;		// Frequency
     double	f_dist;		// Focal distance
+    bool	pid;
+    int		pid_start_step;
+    double	init_control;	// Initial focus used by pid control system
     double	box_size;	// Size of the "box"
     bool	cylindrical;	// Flag for cylindrical condition
     int	on_wave;
@@ -216,6 +225,7 @@ struct output_plan_t
     mixture_t mixture_h;
     bubble_t bubbles_h;
     int step;
+    float tstep;
     array_index_t *array_index;
     grid_t *grid_size;
     sim_params_t *sim_params;

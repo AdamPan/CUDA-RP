@@ -6,6 +6,8 @@
 
 using namespace thrust;
 
+host_vector<double2> focalpoint;
+host_vector<double2> control;
 
 // Mathematical constants
 const double 	Pi_h =  acos(-1.0);
@@ -60,7 +62,7 @@ int solve_bubbles(	array_index_t	*array_index,
                    int			save_function)
 {
     // Variables needed for control structures
-    unsigned int nstep = 0;
+    int nstep = 0;
     double tstep = 0.0, tstepx = 0.0;
     int loop;
     int pthread_count = 0;
@@ -115,6 +117,20 @@ int solve_bubbles(	array_index_t	*array_index,
         exit(EXIT_FAILURE);
     }
     printf("\tdone\n\n");
+
+	focalpoint.push_back(make_double2(0.0,0.0));
+	if (plane_wave->pid)
+	{
+	if (plane_wave->init_control) 
+    	control.push_back(make_double2(0.0,plane_wave->init_control));
+    else
+    	control.push_back(plane_wave->fp);
+	}
+	else
+		control.push_back(plane_wave->fp);
+    double  control_dist = plane_wave->f_dist;
+    double2 pid_cumulative_err = make_double2(0.0,0.0);
+    double2 pid_derivative_err = make_double2(0.0,0.0);
 
     printf("Preparing folders...");
     if (initialize_folders())
@@ -180,6 +196,8 @@ int solve_bubbles(	array_index_t	*array_index,
         s2	=	tstep - s1;
         tstepx	=	mix_params->dt + tstepx - s2;
         cudaMemcpyToSymbol(tstep_c, &tstep, sizeof(double));
+		cutilSafeCall(cudaMemcpyToSymbol(focal_point_c, &control[control.size()-1], sizeof(double2)));
+    	cutilSafeCall(cudaMemcpyToSymbol(focal_dist_c, &control_dist, sizeof(double)));
         checkCUDAError("Set timestamp");
 
         // Store Bubble and Mixture, and predict void fraction
@@ -271,6 +289,20 @@ int solve_bubbles(	array_index_t	*array_index,
             printf("Running the simulation...\t\ttstep : %4.2E / %4.2E", tstep, sim_params->TSTEPMAX);
         }
 
+		if(plane_wave->pid)
+		{
+			focalpoint.push_back(determine_focal_point(mixture_htod.T, array_index, grid_size, T_width));
+			if (nstep > plane_wave->pid_start_step)
+			{
+				control.push_back(focal_PID(plane_wave->fp, focalpoint[focalpoint.size()-1], focalpoint[focalpoint.size()-2], &pid_derivative_err, &pid_cumulative_err, mix_params->dt));
+				control[control.size()-1] = make_double2(0.0, clamp<double>(control[control.size()-1].y, 0.0, grid_size->LY));
+				control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
+			}
+			printf("\tcontrol focal point is (%+4.2E, %+4.2E)", control[control.size()-1].x, control[control.size()-1].y);
+			//cutilSafeCall(cudaMemcpyToSymbol(focal_point_c, &control, sizeof(double2)));
+			//cutilSafeCall(cudaMemcpyToSymbol(focal_dist_c, &control_dist, sizeof(double)));
+		}
+
 #ifdef _DEBUG_
         printf("\n");
 #else
@@ -293,6 +325,7 @@ int solve_bubbles(	array_index_t	*array_index,
             // Assign the data thread with saving the requested variables
 #ifdef _OUTPUT_
             plan->step = nstep;
+            plan->tstep = (float)tstep;
             if (save_function & sph)
             {
             	pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_sph, (void *)(plan));
@@ -340,6 +373,8 @@ int solve_bubbles(	array_index_t	*array_index,
     printf("\r");
 #endif
     printf("Running the simulation...\t\tdone                      \n\n");
+
+	
 
     printf("Cleaning up...");
     // Destroy the variables to prevent further errors
