@@ -60,7 +60,6 @@ static __host__ __device__ doublecomplex solveLp(const doublecomplex, const doub
 static __host__ __device__ double solvePG(const double, const double, const double, const double, const double, const doublecomplex, const bub_params_t);	// Calculates PG
 
 
-
 /* Static utility functions */
 
 // Sorts bubbles
@@ -82,6 +81,23 @@ static __inline__ __device__ double atomicAdd(double * addr, double val)
     while ( assumed!=old );
 
     return old;	// We return the old value, to conform with other atomicAdd() implementations
+}
+
+#define NZEROS 4
+#define NPOLES 4
+
+static double xv[NZEROS+1], yv[NPOLES+1];
+
+static double filter_loop(double input)
+{
+	double gain = 6.522112693e+08;
+		xv[0] = xv[1]; xv[1] = xv[2]; xv[2] = xv[3]; xv[3] = xv[4];
+        xv[4] = input / gain;
+        yv[0] = yv[1]; yv[1] = yv[2]; yv[2] = yv[3]; yv[3] = yv[4]; 
+        yv[4] =   (xv[0] + xv[4]) + 4 * (xv[1] + xv[3]) + 6 * xv[2]
+                     + ( -0.9676955438 * yv[0]) + (  3.9025587848 * yv[1])
+                     + ( -5.9020258615 * yv[2]) + (  3.9671625959 * yv[3]);
+	return yv[4];
 }
 
 template <typename T>
@@ -992,10 +1008,9 @@ __global__ void MixtureTemperatureKernel(int T_width, int Ex_width, int Ey_width
         s0 = 2.0 * (0.22) * 0.115129255 / ( mix_params_c.rho_inf * mix_params_c.cs_inf * plane_wave_c.omega * plane_wave_c.omega) * s0*s0;
         double Q = mixture_c.Work[(jm - array_c.jsta2m) * Work_width + im - array_c.ista2m] + s0;
 
-		mixture_c.Work[(jm-array_c.jsta2m) * Work_width + im - array_c.ista2m] = Q;
         double s1 = (mixture_c.Ex[Ex_i] - mixture_c.Ex[Ex_i - 1]) * grid_c.rdx;
         double s2 = (mixture_c.Ey[Ey_i] - mixture_c.Ey[Ey_i - Ey_width]) * grid_c.rdy;
-        mixture_c.T[(jm - array_c.jsta2m) * T_width + im - array_c.ista2m] += mix_params_c.dt * (s1 + s2 + Q ) / (mixture_c.rho_m[(jm - array_c.jsta1m) * rhom_width + im - array_c.ista1m] * mixture_c.C_pm[(jm - array_c.jsta1m) * Cpm_width + im - array_c.ista1m]);
+        mixture_c.T[(jm - array_c.jsta2m) * T_width + im - array_c.ista2m] += mixture_c.Work[(jm-array_c.jsta2m) * Work_width + im - array_c.ista2m] = mix_params_c.dt * (s1 + s2 + Q ) / (mixture_c.rho_m[(jm - array_c.jsta1m) * rhom_width + im - array_c.ista1m] * mixture_c.C_pm[(jm - array_c.jsta1m) * Cpm_width + im - array_c.ista1m]);
     }
 }
 
@@ -1094,52 +1109,52 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
 //	return 0;
 //}
 
-double2 determine_focal_point(double *Q, array_index_t *array_index, grid_t *grid_size, int Q_width)
+double2 determine_focal_point(double *data, int data_width, int data_packed_width, int data_height, double dx, double dy)
 {
-	thrust::device_ptr<double> Q_ptr(Q);
+	thrust::device_ptr<double> data_ptr(data);
 	typedef thrust::tuple<bool, double> max_type;
 	typedef thrust::tuple<bool, double, double> weighted_grid_type;
 	
 	max_type	m_init(true, 0.0);
 	weighted_grid_type	wg_init(true, 0, 0);
 	
-	padded_grid_tuple<int, double>	unary_op1(i2m, Q_width);
+	padded_grid_tuple<int, double>	unary_op1(data_width, data_packed_width);
 	reduce_max_tuple<int, double>	binary_op1;
 
     max_type max_result = \
     	thrust::transform_reduce(
-    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)),
-    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)) + i2m * j2m,
+    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)),
+    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)) + data_width * data_height,
     		unary_op1,
     		m_init,
     		binary_op1
     	);
 	printf("\tmax is %4.2E\t", thrust::get<1>(max_result));
-	weighted_coordinate_tuple<int, double> unary_op2(i2m, Q_width, grid_size->dx, grid_size->dy, thrust::get<1>(max_result));
+	weighted_coordinate_tuple<int, double> unary_op2(data_width, data_packed_width, dx, dy, thrust::get<1>(max_result));
 	reduce_add_tuple<int, double>          binary_op2;
 
 	weighted_grid_type wg_result = \
 		thrust::transform_reduce(
-			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)),
-			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), Q_ptr)) + i2m * j2m,
+			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)),
+			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)) + data_width * data_height,
 			unary_op2,
 			wg_init,
 			binary_op2
 		);
-	printf("focal point is (%4.2E, %4.2E)", thrust::get<1>(wg_result), thrust::get<2>(wg_result));
+	//printf("focal point is (%8.6E, %8.6E)", thrust::get<1>(wg_result), thrust::get<2>(wg_result));
     return make_double2(thrust::get<1>(wg_result), thrust::get<2>(wg_result));
 }
 
 double2 focal_PID(double2 target, double2 actual, double2 prev, double2 *d_err, double2 *err_total, double dt)
 {
-	double K	=	1.0 * 0.65;
-	double Pc	=	5000.0;
-	double D	=	K * 0.12 * Pc;
+	double K	=	0.3 * 0.60;
+	double Pc	=	1000.0;
+	double D	=	K * 0.125 * Pc;
 	double I	=	K / (0.5 * Pc);
 	double2 err = (target - actual);
-	if (abs(err.y/target.y) < 0.2)
-		*err_total = *err_total + err;
-	*d_err		= (0.5)*(*d_err) + (0.5)*(actual-prev);
+	*err_total = *err_total + err;
+	*d_err		= prev - actual;
+	//printf("target (%+4.2E, %+4.2E) actual (%+4.2E, %+4.2E)", target.x, target.y, actual.x, actual.y);
 	printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
 	printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
 	printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);

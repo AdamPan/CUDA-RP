@@ -206,7 +206,7 @@ int runSimulation(int argc, char *argv[])
 
     cout << "The program took " << time(NULL) - start_time << " seconds to run" << endl;
     ofstream runtime;
-    runtime.open((target_dir + "../runtime.txt").c_str());
+    runtime.open((target_dir + "runtime.txt").c_str());
     runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
     runtime.close();
 
@@ -221,7 +221,7 @@ int runSimulation(int argc, char *argv[])
 	fp_file.open((target_dir + "focalpoint_controller_T.txt").c_str());
 	for (int i = 0; i < control.size(); i++)
 	{
-		fp_file << i + 8000 << "\t" << control[i].y << endl;
+		fp_file << i + plane_wave->pid_start_step << "\t" << control[i].y << endl;
 	}
 	fp_file.close();
 

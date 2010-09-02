@@ -17,19 +17,18 @@ order	=	2
 [simulation]
 cfl	=	0.10
 dt0		=	0.10
-n_step_max	=	24000
+n_step_max	=	40000
 t_step_max	=	0
 save_interval	=	100
 order		=	2
 smooth_delta_band	=	2
 
 [plane_wave]
-amp	=	1.0e-2
+amp	=	3.0e-2
 freq	=	1.0e6
 focal_dist	=	40.0e-3
 pid			=	1
-pid_start_step	=	8000
-init_control=	37.0e-3
+pid_start_step	=	5000
 box_size	=	30.0e-3
 cylindrical	=	1
 on_wave		=	2

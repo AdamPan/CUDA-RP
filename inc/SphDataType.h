@@ -83,7 +83,7 @@ inline bool SphData::SetOrigin(const float origin[3])
 {
 	m_orig[0] = origin[0];
 	m_orig[1] = origin[1];
-	m_orig[2] = origin[3];
+	m_orig[2] = origin[2];
 	return true;
 }
 

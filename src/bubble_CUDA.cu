@@ -291,11 +291,12 @@ int solve_bubbles(	array_index_t	*array_index,
 
 		if(plane_wave->pid)
 		{
-			focalpoint.push_back(determine_focal_point(mixture_htod.T, array_index, grid_size, T_width));
+			focalpoint.push_back(make_double2(0.0, filter_loop(determine_focal_point(mixture_htod.Work, i2m, Work_width, j2m, grid_size->dx, grid_size->dy).y)));
+			printf("focal point is (%8.6E, %8.6E)", focalpoint[focalpoint.size()-1].x, focalpoint[focalpoint.size()-1].y);
 			if (nstep > plane_wave->pid_start_step)
 			{
 				control.push_back(focal_PID(plane_wave->fp, focalpoint[focalpoint.size()-1], focalpoint[focalpoint.size()-2], &pid_derivative_err, &pid_cumulative_err, mix_params->dt));
-				control[control.size()-1] = make_double2(0.0, clamp<double>(control[control.size()-1].y, 0.0, grid_size->LY));
+				control[control.size()-1] = make_double2(0.0, clamp<double>(control[control.size()-1].y, plane_wave->fp.y, grid_size->LY));
 				control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
 			}
 			printf("\tcontrol focal point is (%+4.2E, %+4.2E)", control[control.size()-1].x, control[control.size()-1].y);
