@@ -1129,7 +1129,7 @@ double2 determine_focal_point(double *data, int data_width, int data_packed_widt
     		m_init,
     		binary_op1
     	);
-	printf("\tmax is %4.2E\t", thrust::get<1>(max_result));
+	//printf("\tmax is %4.2E\t", thrust::get<1>(max_result));
 	weighted_coordinate_tuple<int, double> unary_op2(data_width, data_packed_width, dx, dy, thrust::get<1>(max_result));
 	reduce_add_tuple<int, double>          binary_op2;
 
@@ -1147,7 +1147,7 @@ double2 determine_focal_point(double *data, int data_width, int data_packed_widt
 
 double2 focal_PID(double2 target, double2 actual, double2 prev, double2 *d_err, double2 *err_total, double dt)
 {
-	double K	=	0.3 * 0.60;
+	double K	=	0.2 * 0.60;
 	double Pc	=	1000.0;
 	double D	=	K * 0.125 * Pc;
 	double I	=	K / (0.5 * Pc);
@@ -1155,9 +1155,9 @@ double2 focal_PID(double2 target, double2 actual, double2 prev, double2 *d_err, 
 	*err_total = *err_total + err;
 	*d_err		= prev - actual;
 	//printf("target (%+4.2E, %+4.2E) actual (%+4.2E, %+4.2E)", target.x, target.y, actual.x, actual.y);
-	printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
-	printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
-	printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);
+	//printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
+	//printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
+	//printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);
 	return target + (K * err + D * (*d_err) + I * (*err_total));
 }
 

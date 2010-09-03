@@ -52,14 +52,15 @@ void display(double data[], int xdim, int ydim, int num_lines, char *msg)
     }
 }
 
-int solve_bubbles(	array_index_t	*array_index,
+thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_index,
                    grid_t		*grid_size,
                    PML_t		*PML,
                    sim_params_t	*sim_params,
                    bub_params_t	*bub_params,
                    plane_wave_t	*plane_wave,
                    debug_t		*debug,
-                   int			save_function)
+                   int			save_function,
+                   thrust::tuple<bool, double2,double2,double2> pid_init)
 {
     // Variables needed for control structures
     int nstep = 0;
@@ -118,19 +119,35 @@ int solve_bubbles(	array_index_t	*array_index,
     }
     printf("\tdone\n\n");
 
+	focalpoint.clear();
+	control.clear();
+
 	focalpoint.push_back(make_double2(0.0,0.0));
-	if (plane_wave->pid)
-	{
-	if (plane_wave->init_control) 
-    	control.push_back(make_double2(0.0,plane_wave->init_control));
-    else
-    	control.push_back(plane_wave->fp);
-	}
-	else
-		control.push_back(plane_wave->fp);
-    double  control_dist = plane_wave->f_dist;
     double2 pid_cumulative_err = make_double2(0.0,0.0);
     double2 pid_derivative_err = make_double2(0.0,0.0);
+
+	if (plane_wave->pid)
+	{
+		if (thrust::get<0>(pid_init))
+		{
+			control.push_back(get<1>(pid_init));
+			pid_cumulative_err = get<2>(pid_init);
+			pid_derivative_err = get<3>(pid_init);
+		}
+		else if (plane_wave->init_control)
+		{
+			control.push_back(make_double2(0.0,plane_wave->init_control));
+		}
+		else
+		{
+			control.push_back(plane_wave->fp);
+		}
+	}
+	else
+	{
+		control.push_back(plane_wave->fp);
+	}
+    double control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
 
     printf("Preparing folders...");
     if (initialize_folders())
@@ -195,7 +212,7 @@ int solve_bubbles(	array_index_t	*array_index,
         tstep	=	tstep + mix_params->dt + tstepx;
         s2	=	tstep - s1;
         tstepx	=	mix_params->dt + tstepx - s2;
-        cudaMemcpyToSymbol(tstep_c, &tstep, sizeof(double));
+        cutilSafeCall(cudaMemcpyToSymbol(tstep_c, &tstep, sizeof(double)));
 		cutilSafeCall(cudaMemcpyToSymbol(focal_point_c, &control[control.size()-1], sizeof(double2)));
     	cutilSafeCall(cudaMemcpyToSymbol(focal_dist_c, &control_dist, sizeof(double)));
         checkCUDAError("Set timestamp");
@@ -282,24 +299,25 @@ int solve_bubbles(	array_index_t	*array_index,
         // Display progress
         if (sim_params->NSTEPMAX != 0)
         {
-            printf("Running the simulation...\t\tnstep : %5i / %i", nstep, sim_params->NSTEPMAX);
+            printf("Running the simulation...\t\tnstep : %5i / %i\t", nstep, sim_params->NSTEPMAX);
         }
         else if (sim_params->TSTEPMAX !=0)
         {
-            printf("Running the simulation...\t\ttstep : %4.2E / %4.2E", tstep, sim_params->TSTEPMAX);
+            printf("Running the simulation...\t\ttstep : %4.2E / %4.2E\t", tstep, sim_params->TSTEPMAX);
         }
+
+		focalpoint.push_back(make_double2(0.0, filter_loop(determine_focal_point(mixture_htod.Work, i2m, Work_width, j2m, grid_size->dx, grid_size->dy).y)));
+		printf("focal point is (%8.6E, %8.6E)\t", focalpoint[focalpoint.size()-1].x, focalpoint[focalpoint.size()-1].y);
 
 		if(plane_wave->pid)
 		{
-			focalpoint.push_back(make_double2(0.0, filter_loop(determine_focal_point(mixture_htod.Work, i2m, Work_width, j2m, grid_size->dx, grid_size->dy).y)));
-			printf("focal point is (%8.6E, %8.6E)", focalpoint[focalpoint.size()-1].x, focalpoint[focalpoint.size()-1].y);
 			if (nstep > plane_wave->pid_start_step)
 			{
 				control.push_back(focal_PID(plane_wave->fp, focalpoint[focalpoint.size()-1], focalpoint[focalpoint.size()-2], &pid_derivative_err, &pid_cumulative_err, mix_params->dt));
 				control[control.size()-1] = make_double2(0.0, clamp<double>(control[control.size()-1].y, plane_wave->fp.y, grid_size->LY));
 				control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
 			}
-			printf("\tcontrol focal point is (%+4.2E, %+4.2E)", control[control.size()-1].x, control[control.size()-1].y);
+			printf("control focal point is (%+4.2E, %+4.2E)\t", control[control.size()-1].x, control[control.size()-1].y);
 			//cutilSafeCall(cudaMemcpyToSymbol(focal_point_c, &control, sizeof(double2)));
 			//cutilSafeCall(cudaMemcpyToSymbol(focal_dist_c, &control_dist, sizeof(double)));
 		}
@@ -373,7 +391,7 @@ int solve_bubbles(	array_index_t	*array_index,
 #ifndef _DEBUG_
     printf("\r");
 #endif
-    printf("Running the simulation...\t\tdone                      \n\n");
+    printf("Running the simulation...\t\tdone\n\n                                           ");
 
 	
 
@@ -393,7 +411,7 @@ int solve_bubbles(	array_index_t	*array_index,
         cudaEventDestroy(stop[i]);
     }
     printf("\tdone\n\n");
-    return 0;
+    return thrust::make_tuple(1, control[control.size()-1], pid_cumulative_err, pid_derivative_err);
 } // solve_bubbles()
 
 // Initialize simulation variables

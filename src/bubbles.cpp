@@ -23,8 +23,10 @@ int main (int argc, char *argv[])
 int runSimulation(int argc, char *argv[])
 {
     time_t start_time = time(NULL);
-    bool ok = true;
     string in_file;
+
+	ofstream file;
+	ofstream fp_file;
 
     grid_t 	*grid_size;
     PML_t 	*PML;
@@ -34,6 +36,8 @@ int runSimulation(int argc, char *argv[])
     debug_t		*debug;
 
 	int save_function = none;
+	
+	int num_iters = 1;
 
     // Grid parameters
     grid_size 	= (grid_t*) malloc(sizeof(grid_t));
@@ -91,6 +95,7 @@ int runSimulation(int argc, char *argv[])
 		("plane_wave.pid", po::value<bool>(&plane_wave->pid)->default_value(false))
 		("plane_wave.pid_start_step", po::value<int>(&plane_wave->pid_start_step)->default_value(1))
 		("plane_wave.init_control", po::value<double>(&plane_wave->init_control)->default_value(0.0))
+		("plane_wave.pid_iterate", po::value<int>(&num_iters)->default_value(1))
 		("plane_wave.box_size", po::value<double>(&plane_wave->box_size))
 		("plane_wave.cylindrical", po::value<bool>(&plane_wave->cylindrical))
 		("plane_wave.on_wave", po::value<int>(&plane_wave->on_wave))
@@ -196,12 +201,77 @@ int runSimulation(int argc, char *argv[])
 
     array_index_t *array_index = (array_index_t *) calloc(1, sizeof(array_index_t));
 
+	thrust::tuple<bool, double2, double2, double2> result_tuple = thrust::make_tuple(0, make_double2(0.0, 0.0), make_double2(0.0, 0.0), make_double2(0.0, 0.0));
+	for (int i = 0; i < num_iters; i++)
+	{
     // Enter main simulation loop
-    if (ok && solve_bubbles(array_index, grid_size, PML, sim_params, bub_params, plane_wave, debug, save_function))
-    {
-        exit(EXIT_FAILURE);
-    }
+		if (num_iters > 1 && vm.count("directory"))
+		{
+			target_dir = vm["directory"].as<string>();
+			if (target_dir.find_last_of("/") != target_dir.length() - 1)
+			{
+				target_dir += "_";
+				for (int j = 0; j < i + 1; j++)
+				{
+					target_dir += "I";
+				}
+				target_dir += "/";
+			}
+			else
+			{
+				target_dir.resize(target_dir.size()-1);
+				target_dir += "_";
+				for (int j = 0; j < i + 1; j++)
+				{
+					target_dir += "I";
+				}
+				target_dir += "/";
+			}
+		}
+		result_tuple = solve_bubbles(array_index, grid_size, PML, sim_params, bub_params, plane_wave, debug, save_function, result_tuple);
+		cout << (bool)thrust::get<0>(result_tuple) << "\t" << thrust::get<1>(result_tuple).y << "\t" << thrust::get<2>(result_tuple).y << "\t" << thrust::get<3>(result_tuple).y << endl;
+		
 
+		fp_file.open((target_dir + "focalpoint_actual_T.txt").c_str());
+		for (int i = 0; i < focalpoint.size(); i++)
+		{
+			fp_file << i << "\t" << focalpoint[i].y << endl;
+		}
+		fp_file.close();
+
+		fp_file.open((target_dir + "focalpoint_controller_T.txt").c_str());
+		for (int i = 0; i < control.size(); i++)
+		{
+			fp_file << i + plane_wave->pid_start_step << "\t" << control[i].y << endl;
+		}
+		fp_file.close();
+
+
+		if (debug->T)
+		{
+			if (vm.count("debug.T_min")) T_min = vm["debug.T_min"].as<double>();
+			if (vm.count("debug.T_max")) T_max = vm["debug.T_max"].as<double>();
+			file.open((target_dir + "T_minmax.txt").c_str());
+			file << T_min << endl << T_max << endl;
+			file.close();
+		}
+		if (debug->p0)
+		{
+			if (vm.count("debug.p_min")) p0_min = vm["debug.p_min"].as<double>();
+			if (vm.count("debug.p_max")) p0_max = vm["debug.p_max"].as<double>();
+			file.open((target_dir + "p0_minmax.txt").c_str());
+			file << p0_min << endl << p0_max << endl;
+			file.close();
+		}
+		if (debug->fg)
+		{
+			if (vm.count("debug.fg_min")) fg_min = vm["debug.fg_min"].as<double>();
+			if (vm.count("debug.fg_max")) fg_max = vm["debug.fg_max"].as<double>();
+			file.open((target_dir + "fg_minmax.txt").c_str());
+			file << fg_min << endl << fg_max << endl;
+			file.close();
+		}
+	}
     // tell us the time
 
     cout << "The program took " << time(NULL) - start_time << " seconds to run" << endl;
@@ -209,47 +279,5 @@ int runSimulation(int argc, char *argv[])
     runtime.open((target_dir + "runtime.txt").c_str());
     runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
     runtime.close();
-
-	ofstream fp_file;
-	fp_file.open((target_dir + "focalpoint_actual_T.txt").c_str());
-	for (int i = 0; i < focalpoint.size(); i++)
-	{
-		fp_file << i << "\t" << focalpoint[i].y << endl;
-	}
-	fp_file.close();
-
-	fp_file.open((target_dir + "focalpoint_controller_T.txt").c_str());
-	for (int i = 0; i < control.size(); i++)
-	{
-		fp_file << i + plane_wave->pid_start_step << "\t" << control[i].y << endl;
-	}
-	fp_file.close();
-
-
-    ofstream file;
-    if (debug->T)
-    {
-		if (vm.count("debug.T_min")) T_min = vm["debug.T_min"].as<double>();
-        if (vm.count("debug.T_max")) T_max = vm["debug.T_max"].as<double>();
-        file.open((target_dir + "T_minmax.txt").c_str());
-        file << T_min << endl << T_max << endl;
-        file.close();
-    }
-    if (debug->p0)
-    {
-        if (vm.count("debug.p_min")) p0_min = vm["debug.p_min"].as<double>();
-        if (vm.count("debug.p_max")) p0_max = vm["debug.p_max"].as<double>();
-        file.open((target_dir + "p0_minmax.txt").c_str());
-        file << p0_min << endl << p0_max << endl;
-        file.close();
-    }
-    if (debug->fg)
-    {
-        if (vm.count("debug.fg_min")) fg_min = vm["debug.fg_min"].as<double>();
-        if (vm.count("debug.fg_max")) fg_max = vm["debug.fg_max"].as<double>();
-        file.open((target_dir + "fg_minmax.txt").c_str());
-        file << fg_min << endl << fg_max << endl;
-        file.close();
-    }
     return 0;
 }
