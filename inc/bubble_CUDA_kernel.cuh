@@ -11,93 +11,127 @@ extern int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVo
 extern int numBubbles;
 
 /* Constant Memory */
-__device__ __constant__	double		Pi;
-__device__ __constant__	double		Pi4r3;
+__device__ __constant__ double Pi;
+__device__ __constant__ double Pi4r3;
 
-__device__ __constant__	mixture_t	mixture_c;	// Pointers to bubble variables
-__device__ __constant__	bubble_t	bubbles_c;	// Pointers to mixture variables
+__device__ __constant__ mixture_t mixture_c; // Pointers to bubble variables
+__device__ __constant__ bubble_t  bubbles_c; // Pointers to mixture variables
 
-__device__ __constant__	sigma_t		sigma_c; 	// Sigma coefficients used in PML calculations
-__device__ __constant__	grid_gen	gridgen_c; 	// Arrays containing rxp and xu, used in cylindrical coordinate calculations
+__device__ __constant__ sigma_t  sigma_c;   // Sigma coefficients used in PML calculations
+__device__ __constant__ grid_gen gridgen_c; // Arrays containing rxp and xu,
+// used in cylindrical coordinate calculations
 
 // Parameters
-__device__ __constant__	array_index_t	array_c;	// Array indices
-__device__ __constant__	int		num_bubbles;	// Number of bubbles
-__device__ __constant__ grid_t 		grid_c;		// Simulation domain size
-__device__ __constant__ PML_t 		PML_c;		// PML
-__device__ __constant__	sim_params_t	sim_params_c;	// Simulation parameters
-__device__ __constant__	mix_params_t	mix_params_c;	// Mixture
-__device__ __constant__	bub_params_t	bub_params_c;	// Bubble
-__device__ __constant__	plane_wave_t	plane_wave_c;	// Plane Wave
-__device__ __constant__	double		tstep_c;	// Current time
-__device__ __constant__ double3		delta_coef;	// Coefficients used to save ops in calculating the smooth delta function
+__device__ __constant__ array_index_t array_c;      // Array indices
+__device__ __constant__ int           num_bubbles;  // Number of bubbles
+__device__ __constant__ grid_t        grid_c;       // Simulation domain size
+__device__ __constant__ PML_t         PML_c;        // PML
+__device__ __constant__ sim_params_t  sim_params_c; // Simulation parameters
+__device__ __constant__ mix_params_t  mix_params_c; // Mixture
+__device__ __constant__ bub_params_t  bub_params_c; // Bubble
+__device__ __constant__ plane_wave_t  plane_wave_c; // Plane Wave
+__device__ __constant__ double        tstep_c;      // Current time
+__device__ __constant__ double3       delta_coef;   // Coefficients used to save ops in
+// calculating the smooth delta function
 
-__device__ __constant__ double2		focal_point_c;	// x, y - focal point
-__device__ __constant__ double		focal_dist_c;		// focal distance
+__device__ __constant__ double2 focal_point_c; // x, y - focal point
+__device__ __constant__ double  focal_dist_c;  // focal distance
 
 /* Forward Declarations */
 
 // Material properties of water
-__inline__ __host__ __device__ double density_water(double, double);	// Density
-__inline__ __host__ __device__ double thermal_expansion_rate_water(double, double);	// Rate of thermal Expansion
-__inline__ __host__ __device__ double adiabatic_sound_speed_water(double, double);	// Speed of propagation of sound
-__inline__ __host__ __device__ double viscosity_water(double);	// Viscosity
-__inline__ __host__ __device__ double thermal_conductivity_water(double);	// Thermal conductivity
-__inline__ __host__ __device__ double specific_heat_water(double);	// Specific heat capacity
-__inline__ __host__ __device__ double vapor_pressure_water(double);	// Vapor pressure
-__inline__ __host__ __device__ double surface_tension_water(double);	// Surface tension
+__inline__ __host__ __device__
+double density_water(double, double);                // Density
+__inline__ __host__ __device__
+double thermal_expansion_rate_water(double, double); // Rate of thermal Expansion
+__inline__ __host__ __device__
+double adiabatic_sound_speed_water(double, double);  // Speed of propagation of sound
+__inline__ __host__ __device__
+double viscosity_water(double);                      // Viscosity
+__inline__ __host__ __device__
+double thermal_conductivity_water(double);           // Thermal conductivity
+__inline__ __host__ __device__
+double specific_heat_water(double);                  // Specific heat capacity
+__inline__ __host__ __device__
+double vapor_pressure_water(double);                 // Vapor pressure
+__inline__ __host__ __device__
+double surface_tension_water(double);                // Surface tension
 
 // Smooth delta function
-static __inline__ __host__ __device__ double smooth_delta_x(const int, const double);	// x-direction (includes cylindrical case)
-static __inline__ __host__ __device__ double smooth_delta_y(const int, const double);	// y-direction
+static __inline__ __host__ __device__
+double smooth_delta_x(const int, const double); // x-direction (inc. cylindrical case)
+static __inline__ __host__ __device__
+double smooth_delta_y(const int, const double); // y-direction
 
-// Functions used by the bubble radius solver
-static __host__ __device__ void solveRayleighPlesset(double * , double * , double * , double * , const double, const double, double * , double *, const bub_params_t);	// Solves the Rayleigh Plesset equation
-static __host__ __device__ double solveOmegaN(doublecomplex *, const double, const double, const bub_params_t);	// Solves for omega_N
-static __host__ __device__ doublecomplex Alpha(const double, const double, const double);	// Calculates alpha_N
-static __host__ __device__ doublecomplex Upsilon(const doublecomplex , const double);	// Calculates Upsilon
-static __host__ __device__ doublecomplex solveLp(const doublecomplex, const double);	// Calculates Lp_N
-static __host__ __device__ double solvePG(const double, const double, const double, const double, const double, const doublecomplex, const bub_params_t);	// Calculates PG
+// Solves the Rayleigh Plesset equation
+static __host__ __device__
+void solveRayleighPlesset(double * , double * , double * , double * , const double,
+                          const double, double * , double *, const bub_params_t);
+// Solves for omega_N
+static __host__ __device__
+double solveOmegaN(doublecomplex *, const double, const double, const bub_params_t);
+// Calculates alpha_N
+static __host__ __device__
+doublecomplex Alpha(const double, const double, const double);
+// Calculates Upsilon
+static __host__ __device__
+doublecomplex Upsilon(const doublecomplex , const double);
+// Calculates Lp_N
+static __host__ __device__
+doublecomplex solveLp(const doublecomplex, const double);
+// Calculates PG
+static __host__ __device__
+double solvePG(const double, const double, const double, const double, const double,
+               const doublecomplex, const bub_params_t);
 
 
 /* Static utility functions */
 
 // Sorts bubbles
-static __host__ void sort(bubble_t, thrust::device_vector<int>);
+static __host__
+void sort(bubble_t, thrust::device_vector<int>);
 
 // Implements atomic addition for doubles
-static __inline__ __device__ double atomicAdd(double * addr, double val)
+static __inline__ __device__
+double atomicAdd(double * addr, double val)
 {
     double old = *addr;
     double assumed;
 
     do
     {
+        // Pull down down the variable, and compare and swap when we have the chance.
+        // Note that atomicCAS returns the new value at addr.
         assumed = old;
         old = __longlong_as_double(	atomicCAS((unsigned long long int*)addr,
                                               __double_as_longlong(assumed),
-                                              __double_as_longlong(val+assumed)));	// Pull down down the variable, and compare and swap when we have the chance. Note that atomicCAS returns the new value at addr.
+                                              __double_as_longlong(val+assumed)));
     }
     while ( assumed!=old );
 
-    return old;	// We return the old value, to conform with other atomicAdd() implementations
+    return old;	// We return the old value, to conform with
+    // other atomicAdd() implementations
 }
 
-#define NZEROS 4
-#define NPOLES 4
 
-static double xv[NZEROS+1], yv[NPOLES+1];
-
+// 4th Order Butterworth Low Pass filter
+static double xv[5], yv[5];
 static double filter_loop(double input)
 {
-	double gain = 6.522112693e+08;
-		xv[0] = xv[1]; xv[1] = xv[2]; xv[2] = xv[3]; xv[3] = xv[4];
-        xv[4] = input / gain;
-        yv[0] = yv[1]; yv[1] = yv[2]; yv[2] = yv[3]; yv[3] = yv[4]; 
-        yv[4] =   (xv[0] + xv[4]) + 4 * (xv[1] + xv[3]) + 6 * xv[2]
-                     + ( -0.9676955438 * yv[0]) + (  3.9025587848 * yv[1])
-                     + ( -5.9020258615 * yv[2]) + (  3.9671625959 * yv[3]);
-	return yv[4];
+    double gain = 6.522112693e+08;
+    xv[0] = xv[1];
+    xv[1] = xv[2];
+    xv[2] = xv[3];
+    xv[3] = xv[4];
+    xv[4] = input / gain;
+    yv[0] = yv[1];
+    yv[1] = yv[2];
+    yv[2] = yv[3];
+    yv[3] = yv[4];
+    yv[4] =   (xv[0] + xv[4]) + 4 * (xv[1] + xv[3]) + 6 * xv[2]
+              + ( -0.9676955438 * yv[0]) + (  3.9025587848 * yv[1])
+              + ( -5.9020258615 * yv[2]) + (  3.9671625959 * yv[3]);
+    return yv[4];
 }
 
 template <typename T>
@@ -108,45 +142,58 @@ inline T clamp(T x, T a, T b)
 
 
 // intrinsic epsilon for double
-static __inline__ __host__ __device__ double epsilon(double val)
+static __inline__ __host__ __device__
+double epsilon(double val)
 {
     return 2.22044604925031308e-016;
 }
 
 // Physical Properties of Water
 
-__inline__ __host__ __device__ double density_water(double P, double T)
+__inline__ __host__ __device__
+double density_water(double P, double T)
 {
     return 1000.0;
 } // water_density()
 
-__inline__ __host__ __device__ double thermal_expansion_rate_water(double P, double T)
+__inline__ __host__ __device__
+double thermal_expansion_rate_water(double P, double T)
 {
     return 200.0e-6f;
 } // thermal_expansion_rate_water()
 
-__inline__ __host__ __device__ double adiabatic_sound_speed_water(double P, double T)
+__inline__ __host__ __device__
+double adiabatic_sound_speed_water(double P, double T)
 {
     return 1500.0;
 } // adiabatic_sound_speed_water()
 
-__inline__ __host__ __device__ double viscosity_water(double T)
+__inline__ __host__ __device__
+double viscosity_water(double T)
 {
     return exp(-10.4349f - 507.881f/(149.390-T));
 } // viscosity_water()
 
-__inline__ __host__ __device__ double thermal_conductivity_water(double T)
+__inline__ __host__ __device__
+double thermal_conductivity_water(double T)
 {
     return 0.76760 + (7.5390e-3f * T) - 9.8250e-6f * (T*T);
 } // thermal_conductivity()
 
-__inline__ __host__ __device__ double specific_heat_water(double T)
+__inline__ __host__ __device__
+double specific_heat_water(double T)
 {
     double H2O = 18.0e-3f;
-    return  (917.5 - 10.1016f * T + 0.0454134f * (T*T) - 9.07517e-5 * (T*T*T) + 6.80700e-8f * (T*T*T*T))/H2O;
+    return  (917.5
+             - 10.1016f * T
+             + 0.0454134f * (T*T)
+             - 9.07517e-5 * (T*T*T)
+             + 6.80700e-8f * (T*T*T*T))
+            /H2O;
 } // specific_heat_water()
 
-__inline__ __host__ __device__ double vapor_pressure_water(double T)
+__inline__ __host__ __device__
+double vapor_pressure_water(double T)
 {
     double Tc = T - 273.15;
     return 6.11176750
@@ -1083,12 +1130,12 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
 //{
 //	const int i = blockIdx.x * blockDim.x + threadIdx.x;
 //	const int j = blockIdx.y * blockDim.y + threadIdx.y;
-//	
+//
 //	const int i2m = i + array_c.ista2m;
 //	const int j2m = j + array_c.jsta2m;
-//	
+//
 //	if ((i2m <= array_c.iend2m) && (j2m <= array_c.jend2m)){
-//		area_sum_mask[area_sum_mask_width * j + i] = 
+//		area_sum_mask[area_sum_mask_width * j + i] =
 //	}
 //}
 
@@ -1103,7 +1150,7 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
 //                   (j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
 
 //	AreaMaskInitKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (area_sum_mask, area_sum_mask_width);
-//	
+//
 //	cudaStreamSynchronize(stream[0]);
 //	checkCUDAError("Failed to initialize Area Mask");
 //	return 0;
@@ -1111,54 +1158,54 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
 
 double2 determine_focal_point(double *data, int data_width, int data_packed_width, int data_height, double dx, double dy)
 {
-	thrust::device_ptr<double> data_ptr(data);
-	typedef thrust::tuple<bool, double> max_type;
-	typedef thrust::tuple<bool, double, double> weighted_grid_type;
-	
-	max_type	m_init(true, 0.0);
-	weighted_grid_type	wg_init(true, 0, 0);
-	
-	padded_grid_tuple<int, double>	unary_op1(data_width, data_packed_width);
-	reduce_max_tuple<int, double>	binary_op1;
+    thrust::device_ptr<double> data_ptr(data);
+    typedef thrust::tuple<bool, double> max_type;
+    typedef thrust::tuple<bool, double, double> weighted_grid_type;
+
+    max_type	m_init(true, 0.0);
+    weighted_grid_type	wg_init(true, 0, 0);
+
+    padded_grid_tuple<int, double>	unary_op1(data_width, data_packed_width);
+    reduce_max_tuple<int, double>	binary_op1;
 
     max_type max_result = \
-    	thrust::transform_reduce(
-    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)),
-    		thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)) + data_width * data_height,
-    		unary_op1,
-    		m_init,
-    		binary_op1
-    	);
-	//printf("\tmax is %4.2E\t", thrust::get<1>(max_result));
-	weighted_coordinate_tuple<int, double> unary_op2(data_width, data_packed_width, dx, dy, thrust::get<1>(max_result));
-	reduce_add_tuple<int, double>          binary_op2;
+                          thrust::transform_reduce(
+                              thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)),
+                              thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)) + data_width * data_height,
+                              unary_op1,
+                              m_init,
+                              binary_op1
+                          );
+    //printf("\tmax is %4.2E\t", thrust::get<1>(max_result));
+    weighted_coordinate_tuple<int, double> unary_op2(data_width, data_packed_width, dx, dy, thrust::get<1>(max_result));
+    reduce_add_tuple<int, double>          binary_op2;
 
-	weighted_grid_type wg_result = \
-		thrust::transform_reduce(
-			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)),
-			thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)) + data_width * data_height,
-			unary_op2,
-			wg_init,
-			binary_op2
-		);
-	//printf("focal point is (%8.6E, %8.6E)", thrust::get<1>(wg_result), thrust::get<2>(wg_result));
+    weighted_grid_type wg_result = \
+                                   thrust::transform_reduce(
+                                       thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)),
+                                       thrust::make_zip_iterator(thrust::make_tuple(thrust::counting_iterator<int>(0), data_ptr)) + data_width * data_height,
+                                       unary_op2,
+                                       wg_init,
+                                       binary_op2
+                                   );
+    //printf("focal point is (%8.6E, %8.6E)", thrust::get<1>(wg_result), thrust::get<2>(wg_result));
     return make_double2(thrust::get<1>(wg_result), thrust::get<2>(wg_result));
 }
 
 double2 focal_PID(double2 target, double2 actual, double2 prev, double2 *d_err, double2 *err_total, double dt)
 {
-	double K	=	0.2 * 0.60;
-	double Pc	=	1000.0;
-	double D	=	K * 0.125 * Pc;
-	double I	=	K / (0.5 * Pc);
-	double2 err = (target - actual);
-	*err_total = *err_total + err;
-	*d_err		= prev - actual;
-	//printf("target (%+4.2E, %+4.2E) actual (%+4.2E, %+4.2E)", target.x, target.y, actual.x, actual.y);
-	//printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
-	//printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
-	//printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);
-	return target + (K * err + D * (*d_err) + I * (*err_total));
+    double K	=	0.2 * 0.60;
+    double Pc	=	1000.0;
+    double D	=	K * 0.125 * Pc;
+    double I	=	K / (0.5 * Pc);
+    double2 err = (target - actual);
+    *err_total = *err_total + err;
+    *d_err		= prev - actual;
+    //printf("target (%+4.2E, %+4.2E) actual (%+4.2E, %+4.2E)", target.x, target.y, actual.x, actual.y);
+    //printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
+    //printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
+    //printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);
+    return target + (K * err + D * (*d_err) + I * (*err_total));
 }
 
 int update_bubble_indices(cudaStream_t stream[], cudaEvent_t stop[])
@@ -1173,7 +1220,7 @@ int update_bubble_indices(cudaStream_t stream[], cudaEvent_t stop[])
     return 0;
 }
 
-int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, int f_g_width, int f_g_pitch, cudaStream_t stream[], cudaEvent_t stop[])
+int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, pitch_sizes_t pitches, array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     dim3 dimVFCBlock(LINEAR_BLOCK_SIZE);
     dim3 dimVFCGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE);
@@ -1181,13 +1228,13 @@ int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, in
     dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
     dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
-    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.f_g, f_g_pitch, 0, i2m * sizeof(double), j2m));
+    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.f_g, pitches.f_g, 0, i2m * sizeof(double), j2m));
     cudaThreadSynchronize();
 
-    VoidFractionReverseLookupKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (f_g_width);
+    VoidFractionReverseLookupKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (widths.f_g);
     if (plane_wave->cylindrical)
     {
-        VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock, 0, stream[0] >>> (f_g_width);
+        VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock, 0, stream[0] >>> (widths.f_g);
     }
 
     cudaStreamSynchronize(stream[0]);
@@ -1195,16 +1242,16 @@ int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, in
     return 0;
 }
 
-int synchronize_void_fraction(mixture_t mixture_htod, size_t f_g_pitch, cudaStream_t stream[], cudaEvent_t stop[])
+int synchronize_void_fraction(mixture_t mixture_htod, pitch_sizes_t pitches, cudaStream_t stream[], cudaEvent_t stop[])
 {
 
-    CUDA_SAFE_CALL(cudaMemcpy2D(mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
-    CUDA_SAFE_CALL(cudaMemcpy2D(mixture_htod.f_gm, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
+    CUDA_SAFE_CALL(cudaMemcpy2D(mixture_htod.f_gn, pitches.f_gn, mixture_htod.f_g, pitches.f_g, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
+    CUDA_SAFE_CALL(cudaMemcpy2D(mixture_htod.f_gm, pitches.f_gm, mixture_htod.f_g, pitches.f_g, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
 
     return 0;
 }
 
-int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width, int p_width, int Work_width, size_t f_g_pitch, size_t Work_pitch, size_t p_pitch, cudaStream_t stream[], cudaEvent_t stop[])
+int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, pitch_sizes_t pitches, array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
     dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
@@ -1213,7 +1260,7 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
     dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
     dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
-    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m));
+    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, pitches.Work, 0, i2m * sizeof(double), j2m));
     cudaThreadSynchronize();
 
     CUDA_SAFE_CALL(cudaMemcpy(bubbles_htod.R_pn, bubbles_htod.R_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice));
@@ -1226,20 +1273,20 @@ int store_variables(mixture_t mixture_htod, bubble_t bubbles_htod, int f_g_width
     CUDA_SAFE_CALL(cudaMemcpy(bubbles_htod.re_n, bubbles_htod.re, sizeof(double)*numBubbles, cudaMemcpyDeviceToDevice));
 
     // Void fraction (fg) prediction, store it in the work array
-    VFPredictionKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (f_g_width);
+    VFPredictionKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (widths.f_g);
     cudaThreadSynchronize();
     // Store variables
-    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.pn, p_pitch, mixture_htod.p, p_pitch, sizeof(double2)*i1m, j1m, cudaMemcpyDeviceToDevice));
-    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.f_gm, f_g_pitch, mixture_htod.f_gn, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
-    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.f_gn, f_g_pitch, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
+    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.pn, pitches.p, mixture_htod.p, pitches.p, sizeof(double2)*i1m, j1m, cudaMemcpyDeviceToDevice));
+    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.f_gm, pitches.f_g, mixture_htod.f_gn, pitches.f_g, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
+    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.f_gn, pitches.f_g, mixture_htod.f_g, pitches.f_g, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
 
     // Store the predicted void fractions (fg)
-    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.f_g, f_g_pitch, mixture_htod.Work, Work_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
+    CUDA_SAFE_CALL(cudaMemcpy2D(	mixture_htod.f_g, pitches.f_g, mixture_htod.Work, pitches.Work, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToDevice));
 
     return 0;
 }
 
-int calculate_velocity_field(int vx_width, int vy_width, int rho_m_width, int p0_width, int c_sl_width, cudaStream_t stream[], cudaEvent_t stop[])
+int calculate_velocity_field(array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
 
     dim3 dimVelocityBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
@@ -1249,21 +1296,21 @@ int calculate_velocity_field(int vx_width, int vy_width, int rho_m_width, int p0
     dim3 dimVBBlock(LINEAR_BLOCK_SIZE);
     dim3 dimVBGrid((max(max(i2m,i2n),max(j2m,j2n)) + LINEAR_BLOCK_SIZE - 1)/ LINEAR_BLOCK_SIZE);
 
-    VelocityKernel <<< dimVelocityGrid, dimVelocityBlock, 0, stream[0] >>> (vx_width, vy_width, rho_m_width, p0_width, c_sl_width);
-    VelocityBoundaryKernel <<< dimVBGrid, dimVBBlock, 0, stream[0] >>> (vx_width, vy_width);
+    VelocityKernel <<< dimVelocityGrid, dimVelocityBlock, 0, stream[0] >>> (widths.vx, widths.vy, widths.rho_m, widths.p0, widths.c_sl);
+    VelocityBoundaryKernel <<< dimVBGrid, dimVBBlock, 0, stream[0] >>> (widths.vx, widths.vy);
 
     cudaStreamSynchronize(stream[0]);
     checkCUDAError("Failed to calculate velocity");
     return 0;
 }
 
-int bubble_motion(bubble_t bubbles_htod, int vx_width, int vy_width, cudaStream_t stream[], cudaEvent_t stop[])
+int bubble_motion(bubble_t bubbles_htod, array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
     dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
     // Calculate each bubble's interpolated liquid velocity
-    BubbleInterpolationVelocityKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (vx_width, vy_width);
+    BubbleInterpolationVelocityKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (widths.vx, widths.vy);
     // Calculate (read: copy) the bubble velocity from liquid velocity
     CUDA_SAFE_CALL(cudaMemcpy(bubbles_htod.v_B, bubbles_htod.v_L, sizeof(double2)*numBubbles, cudaMemcpyDeviceToDevice));
     // Move the bubbles and update the bubble midpoint/nodepoint indices
@@ -1274,7 +1321,7 @@ int bubble_motion(bubble_t bubbles_htod, int vx_width, int vy_width, cudaStream_
     return 0;
 }
 
-double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, double P_inf, int p0_width, int p_width, int f_g_width, int vx_width, int vy_width, int rho_l_width, int c_sl_width, int Work_width, size_t Work_pitch, cudaStream_t stream[], cudaEvent_t stop[])
+double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, double P_inf, pitch_sizes_t pitches, array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     double resimax = 0.0;
 
@@ -1285,14 +1332,14 @@ double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, dou
     dim3 dim1mGrid((i1m + TILE_BLOCK_WIDTH - 1)/TILE_BLOCK_WIDTH,
                    (j1m + TILE_BLOCK_HEIGHT - 1)/TILE_BLOCK_HEIGHT);
 
-    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m));
+    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, pitches.Work, 0, i2m * sizeof(double), j2m));
 
-    MixturePressureKernel <<< dim1mGrid, dim1mBlock, 0, stream[0] >>> (vx_width, vy_width, f_g_width, rho_l_width, c_sl_width, p0_width, p_width, Work_width);
+    MixturePressureKernel <<< dim1mGrid, dim1mBlock, 0, stream[0] >>> (widths.vx, widths.vy, widths.f_g, widths.rho_l, widths.c_sl, widths.p0, widths.p, widths.Work);
     cudaStreamSynchronize(stream[0]);
 
-    MixtureBoundaryPressureKernel <<< dimMBPGrid, dimMBPBlock, 0, stream[1] >>> (p0_width);
+    MixtureBoundaryPressureKernel <<< dimMBPGrid, dimMBPBlock, 0, stream[1] >>> (widths.p0);
 
-    CUDA_SAFE_CALL(cudaMemcpy2D(mixture_h.Work, sizeof(double)*i2m, mixture_htod.Work, Work_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost));
+    CUDA_SAFE_CALL(cudaMemcpy2D(mixture_h.Work, sizeof(double)*i2m, mixture_htod.Work, pitches.Work, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost));
 
     cudaStreamSynchronize(stream[0]);
     resimax = 0;
@@ -1310,19 +1357,19 @@ double calculate_pressure_field(mixture_t mixture_h, mixture_t mixture_htod, dou
     return resimax;
 }
 
-int interpolate_bubble_pressure(int p0_width, cudaStream_t stream[], cudaEvent_t stop[])
+int interpolate_bubble_pressure(array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
     dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
 
-    BubbleInterpolationScalarKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (p0_width);
+    BubbleInterpolationScalarKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (widths.p0);
     cudaStreamSynchronize(stream[0]);
     checkCUDAError("Failed to calculate PL for bubbles");
 
     return 0;
 }
 
-int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, int k_m_width, int T_width, int f_g_width, int Ex_width, int Ey_width, int p_width, int rho_m_width, int C_pm_width, int Work_width, size_t Work_pitch, cudaStream_t stream[], cudaEvent_t stop[])
+int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, pitch_sizes_t pitches, array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     dim3 dimBubbleBlock(LINEAR_BLOCK_SIZE);
     dim3 dimBubbleGrid((numBubbles + LINEAR_BLOCK_SIZE - 1) / (LINEAR_BLOCK_SIZE));
@@ -1334,22 +1381,22 @@ int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, int 
     dim3 dimMBTBlock(LINEAR_BLOCK_SIZE);
     dim3 dimMBTGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1)/LINEAR_BLOCK_SIZE);
 
-    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, Work_pitch, 0, i2m * sizeof(double), j2m));
+    CUDA_SAFE_CALL(cudaMemset2D(mixture_htod.Work, pitches.Work, 0, i2m * sizeof(double), j2m));
     cudaThreadSynchronize();
 
     if (bub_params->enabled)
     {
-        BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[1] >>> (Work_width);
+        BubbleHeatKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[1] >>> (widths.Work);
     }
-    MixtureKMKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (k_m_width, T_width, f_g_width);
-    MixtureEnergyKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (k_m_width, T_width, Ex_width, Ey_width);
+    MixtureKMKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (widths.k_m, widths.T, widths.f_g);
+    MixtureEnergyKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (widths.k_m, widths.T, widths.Ex, widths.Ey);
 
     cudaStreamSynchronize(stream[0]);
     cudaStreamSynchronize(stream[1]);
 
-    MixtureTemperatureKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (T_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width);
+    MixtureTemperatureKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (widths.T, widths.Ex, widths.Ey, widths.p, widths.rho_m, widths.C_pm, widths.Work);
 
-    MixtureBoundaryTemperatureKernel <<< dimMBTGrid, dimMBTBlock, 0, stream[0] >>> (T_width);
+    MixtureBoundaryTemperatureKernel <<< dimMBTGrid, dimMBTBlock, 0, stream[0] >>> (widths.T);
 
     cudaStreamSynchronize(stream[0]);
     checkCUDAError("Mixture boundary temperature");
@@ -1357,13 +1404,13 @@ int calculate_temperature(mixture_t mixture_htod, bub_params_t *bub_params, int 
     return 0;
 }
 
-int calculate_properties(int rho_l_width, int rho_m_width, int c_sl_width, int C_pm_width, int f_g_width, int T_width, cudaStream_t stream[], cudaEvent_t stop[])
+int calculate_properties(array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     dim3 dim1mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
     dim3 dim1mGrid((i1m + TILE_BLOCK_WIDTH - 1)/TILE_BLOCK_WIDTH,
                    (j1m + TILE_BLOCK_HEIGHT - 1)/TILE_BLOCK_HEIGHT);
 
-    MixturePropertiesKernel <<< dim1mGrid, dim1mBlock, 0, stream[0] >>> (rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width);
+    MixturePropertiesKernel <<< dim1mGrid, dim1mBlock, 0, stream[0] >>> (widths.rho_l, widths.rho_m, widths.c_sl, widths.C_pm, widths.f_g, widths.T);
 
     cudaStreamSynchronize(stream[0]);
     checkCUDAError("Mixture properties");

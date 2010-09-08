@@ -30,7 +30,7 @@ static __inline__ __host__ __device__ double2 operator+ (const double a, const d
 
 static __inline__ __host__ __device__ double2 operator+= (const double2 a, const double2 b)
 {
-	return a + b;
+    return a + b;
 }
 
 static __inline__ __host__ __device__ double2 operator- (const double2 a, const double2 b)

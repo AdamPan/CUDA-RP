@@ -233,6 +233,16 @@ struct output_plan_t
     debug_t *debug;
 };
 
+struct pitch_sizes_t
+{
+    size_t T, P, p0, p, pn, vx, vy, c_sl, rho_m, rho_l, f_g, f_gn, f_gm, k_m, C_pm, Work, Ex, Ey;
+};
+
+struct array_widths_t
+{
+    int T, P, p0, p, pn, vx, vy, c_sl, rho_m, rho_l, f_g, f_gn, f_gm, k_m, C_pm, Work, Ex, Ey;
+};
+
 void display(double data[], int xdim, int ydim, int num_lines, char **msg);
 
 thrust::tuple<bool,double2, double2, double2> solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int save_function, thrust::tuple<bool,double2,double2,double2> pid_init);

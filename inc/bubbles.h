@@ -25,9 +25,9 @@
 
 enum
 {
-	none,
-	ascii,
-	sph,
+    none,
+    ascii,
+    sph,
 };
 
 

@@ -74,7 +74,7 @@ extern "C" void *save_sph(void *threadArg)
 
     if (debug->p0)
     {
-		p0_sph.Init(dim, origin, pitch, tstep, step);
+        p0_sph.Init(dim, origin, pitch, tstep, step);
         for (int j = 0; j <= grid_size->Y; j++)
         {
             for (int i = 0; i <= grid_size->X; i++)

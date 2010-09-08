@@ -23,7 +23,7 @@ public:
     SphData();
     virtual~ SphData();
 
-	bool Init(int dim[], float origin[], float pitch[], float tstep, int step);
+    bool Init(int dim[], float origin[], float pitch[], float tstep, int step);
     bool Allocate();
     bool Allocate(const float value);
     bool Allocate(const int dims[3]);
@@ -49,11 +49,11 @@ public:
 
 inline bool SphData::Init(int dim[], float origin[], float pitch[], float tstep, int step)
 {
-	Allocate(dim);
-	SetOrigin(origin);
-	SetPitch(pitch);
-	SetTimeStep(tstep, step);
-	return true;
+    Allocate(dim);
+    SetOrigin(origin);
+    SetPitch(pitch);
+    SetTimeStep(tstep, step);
+    return true;
 }
 
 inline float& SphData::GetValue(const int i, const int j, const int k)
@@ -73,25 +73,25 @@ inline void SphData::SetValue(const int i, const int j, const int k, const float
 
 inline bool SphData::SetPitch(const float pitch[3])
 {
-	m_pitch[0] = pitch[0];
-	m_pitch[1] = pitch[1];
-	m_pitch[2] = pitch[2];
-	return true;
+    m_pitch[0] = pitch[0];
+    m_pitch[1] = pitch[1];
+    m_pitch[2] = pitch[2];
+    return true;
 }
 
 inline bool SphData::SetOrigin(const float origin[3])
 {
-	m_orig[0] = origin[0];
-	m_orig[1] = origin[1];
-	m_orig[2] = origin[2];
-	return true;
+    m_orig[0] = origin[0];
+    m_orig[1] = origin[1];
+    m_orig[2] = origin[2];
+    return true;
 }
 
 inline bool SphData::SetTimeStep(const float time, const int step)
 {
-	m_time = time;
-	m_step = step;
-	return true;
+    m_time = time;
+    m_step = step;
+    return true;
 }
 
 class SphXData : public SphData

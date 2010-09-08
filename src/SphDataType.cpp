@@ -145,8 +145,8 @@ bool SphData::SaveSph(const std::string fname)
     cout << "Save file name is " << fname << endl;
 #endif
     ofstream os( fname.c_str(), ios::binary);
-    
-	
+
+
 
     if (! os.is_open() ) return false;
 
@@ -186,7 +186,7 @@ bool SphData::SaveSph(const std::string fname)
     os.close();
 
 #ifdef DEBUG
-    	SphData::Info();
+    SphData::Info();
 #endif
     return true;
 }

@@ -10,26 +10,26 @@ host_vector<double2> focalpoint;
 host_vector<double2> control;
 
 // Mathematical constants
-const double 	Pi_h =  acos(-1.0);
-const double	Pi4r3_h = Pi_h * 4.0/3.0;
+const double Pi_h    =  acos(-1.0);
+const double Pi4r3_h = Pi_h * 4.0/3.0;
 
-mixture_t	mixture_h, mixture_htod;
-bubble_t	bubbles_h, bubbles_htod;
+mixture_t mixture_h, mixture_htod;
+bubble_t  bubbles_h, bubbles_htod;
 
-grid_gen	grid_h, grid_htod;
-sigma_t		sigma_h, sigma_htod;
+grid_gen  grid_h, grid_htod;
+sigma_t   sigma_h, sigma_htod;
 
-size_t T_pitch, P_pitch, p0_pitch, p_pitch, pn_pitch, vx_pitch, vy_pitch, c_sl_pitch, rho_m_pitch, rho_l_pitch, f_g_pitch, f_gn_pitch, f_gm_pitch, k_m_pitch, C_pm_pitch, Work_pitch, Ex_pitch, Ey_pitch;
+// Allocation variables
+pitch_sizes_t pitches;
 
-int T_width, P_width, p0_width, p_width, pn_width, vx_width, vy_width, c_sl_width, rho_m_width, rho_l_width, f_g_width, f_gn_width, f_gm_width, k_m_width, C_pm_width, Work_width, Ex_width, Ey_width;
+array_widths_t widths;
 
+// Array dimensions
 int j0m, j0n, i1m, j1m, i1n, j1n, i2m, j2m, i2n, j2n, m1Vol, m2Vol, v_xVol, v_yVol, E_xVol, E_yVol;
 int numBubbles = 0;
 
-/**************************************************************
- *                      Host Functions                        *
- **************************************************************/
-
+// Diagnostic display message
+#ifdef _DEBUG_
 void display(double data[], int xdim, int ydim, int num_lines, char *msg)
 {
     printf("%s\n", msg);
@@ -51,41 +51,35 @@ void display(double data[], int xdim, int ydim, int num_lines, char *msg)
         printf("\n");
     }
 }
+#endif
 
-thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_index,
-                   grid_t		*grid_size,
-                   PML_t		*PML,
-                   sim_params_t	*sim_params,
-                   bub_params_t	*bub_params,
-                   plane_wave_t	*plane_wave,
-                   debug_t		*debug,
-                   int			save_function,
-                   thrust::tuple<bool, double2,double2,double2> pid_init)
+thrust::tuple<bool,double2,double2,double2>
+solve_bubbles(array_index_t *array_index,
+              grid_t        *grid_size,
+              PML_t         *PML,
+              sim_params_t  *sim_params,
+              bub_params_t  *bub_params,
+              plane_wave_t  *plane_wave,
+              debug_t       *debug,
+              int            save_function,
+              thrust::tuple<bool, double2,double2,double2> pid_init)
 {
     // Variables needed for control structures
     int nstep = 0;
     double tstep = 0.0, tstepx = 0.0;
     int loop;
-    int pthread_count = 0;
     double resimax;
     double s1, s2;
-    
-    // Variables for PID controller
-//    double *area_sum_mask;
-//    size_t area_sum_mask_pitch;
-//    cudaMallocPitch((void **)&area_sum_mask, 	&area_sum_mask_pitch,	sizeof(double)*i2n, j2m);
-//    int area_sum_mask_width = area_sum_mask_pitch / sizeof(double);
+
+    int max_iter;
 
     // Data thread setup
+    int pthread_count = 0;
     pthread_t save_thread[sim_params->NSTEPMAX/sim_params->DATA_SAVE];
     pthread_attr_t pthread_custom_attr;
     output_plan_t *plan;
-
     pthread_attr_init(&pthread_custom_attr);
-
     plan = (output_plan_t *)malloc(sizeof(output_plan_t));
-
-    int max_iter;
 
 #ifdef _DEBUG_
     // Clear terminal for output
@@ -94,14 +88,18 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
         exit(EXIT_FAILURE);
     }
 #endif
+
+    // Set CUDA configuration
     setCUDAflags();
 
+    // Initialize CUDA streams
     int num_streams = 3;
     cudaStream_t stream[num_streams];
     for (int i = 0; i < num_streams; i++)
     {
         cudaStreamCreate(&stream[i]);
     }
+    // Initialize CUDA events
     cudaEvent_t stop[num_streams];
     for (int i = 0; i < num_streams; i++)
     {
@@ -109,85 +107,87 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
     }
 
     // Mixture Parameters
-    mix_params_t	*mix_params = (mix_params_t*) calloc(1, sizeof(mix_params_t));
+    mix_params_t *mix_params = (mix_params_t*) calloc(1, sizeof(mix_params_t));
 
     // Initialize Variables
     printf("Computing Simulation Variables...");
-    if (initialize_variables(grid_size, PML, sim_params, plane_wave, array_index, mix_params, bub_params))
-    {
-        exit(EXIT_FAILURE);
-    }
-    printf("\tdone\n\n");
+    initialize_variables(grid_size,
+                         PML,
+                         sim_params,
+                         plane_wave,
+                         array_index,
+                         mix_params,
+                         bub_params);
+    printf("\tdone\n");
 
-	focalpoint.clear();
-	control.clear();
+    // Initialize control system
+    printf("Initializing PID controller...");
+    focalpoint.clear();
+    control.clear();
 
-	focalpoint.push_back(make_double2(0.0,0.0));
+    focalpoint.push_back(make_double2(0.0,0.0));
     double2 pid_cumulative_err = make_double2(0.0,0.0);
     double2 pid_derivative_err = make_double2(0.0,0.0);
 
-	if (plane_wave->pid)
-	{
-		if (thrust::get<0>(pid_init))
-		{
-			control.push_back(get<1>(pid_init));
-			pid_cumulative_err = get<2>(pid_init);
-			pid_derivative_err = get<3>(pid_init);
-		}
-		else if (plane_wave->init_control)
-		{
-			control.push_back(make_double2(0.0,plane_wave->init_control));
-		}
-		else
-		{
-			control.push_back(plane_wave->fp);
-		}
-	}
-	else
-	{
-		control.push_back(plane_wave->fp);
-	}
-    double control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
-
-    printf("Preparing folders...");
-    if (initialize_folders())
+    if (plane_wave->pid)
     {
-        exit(EXIT_FAILURE);
+        if (thrust::get<0>(pid_init))
+        {
+            control.push_back(get<1>(pid_init));
+            pid_cumulative_err = get<2>(pid_init);
+            pid_derivative_err = get<3>(pid_init);
+        }
+        else if (plane_wave->init_control)
+        {
+            control.push_back(make_double2(0.0,plane_wave->init_control));
+        }
+        else
+        {
+            control.push_back(plane_wave->fp);
+        }
     }
-    printf("\t\t\tdone\n\n");
+    else
+    {
+        control.push_back(plane_wave->fp);
+    }
+    double control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
+    printf("\tdone\n");
+
+    // Initialize folders to save to
+    printf("Preparing folders...");
+    initialize_folders();
+    printf("\t\t\tdone\n");
 
     // Allocate memory on the device
     printf("Allocating Memory...");
-    if (initialize_CUDA_variables(grid_size, PML, sim_params, plane_wave, array_index, mix_params, bub_params))
-    {
-        exit(EXIT_FAILURE);
-    }
-    printf("\t\t\tdone\n\n");
+    initialize_CUDA_variables(grid_size,
+                              PML,
+                              sim_params,
+                              plane_wave,
+                              array_index,
+                              mix_params,
+                              bub_params);
+    printf("\t\t\tdone\n");
 
     // Initialization kernels
     printf("Running Initialization Kernels...");
     // Update Bubble Index
-    if (bub_params->enabled && update_bubble_indices(stream, stop))
+    if (bub_params->enabled)
     {
-        exit(EXIT_FAILURE);
+        update_bubble_indices(stream, stop);
     }
     // Calculate the initial state void fraction
-    if (bub_params->enabled && calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stream, stop))
+    if (bub_params->enabled)
     {
-        exit(EXIT_FAILURE);
+        calculate_void_fraction(mixture_htod, plane_wave,
+                                pitches, widths,
+                                stream, stop);
     }
     // Set f_gn and f_gm to f_g
-    if (synchronize_void_fraction(mixture_htod, f_g_pitch, stream, stop))
-    {
-        exit(EXIT_FAILURE);
-    }
-//    if (area_sum_mask_init(area_sum_mask, area_sum_mask_width))
-//    {
-//    	exit(EXIT_FAILURE);
-//    }
-    printf("\tdone\n\n");
+    synchronize_void_fraction(mixture_htod, pitches, stream, stop);
+    printf("\tdone\n");
 
-    // Assign Plan pointers
+    // Link pointers in plan to simulation
     plan->mixture_h = mixture_h;
     plan->bubbles_h = bubbles_h;
     plan->array_index = array_index;
@@ -197,46 +197,44 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
     plan->debug = debug;
 
     /************************
-     * Main simulation loop	*
+     * Main simulation loop *
      ************************/
-    
-    sleep(1);
     printf("Running the simulation\t\t");
-    while (	((sim_params->NSTEPMAX != 0) && (nstep < sim_params->NSTEPMAX)) ||
+    while (((sim_params->NSTEPMAX != 0) && (nstep < sim_params->NSTEPMAX)) ||
             ((sim_params->TSTEPMAX != 0) && (tstep < sim_params->TSTEPMAX)))
     {
         nstep++;
 
         // Accurate time addition
-        s1	=	tstep;
-        tstep	=	tstep + mix_params->dt + tstepx;
-        s2	=	tstep - s1;
-        tstepx	=	mix_params->dt + tstepx - s2;
-        cutilSafeCall(cudaMemcpyToSymbol(tstep_c, &tstep, sizeof(double)));
-		cutilSafeCall(cudaMemcpyToSymbol(focal_point_c, &control[control.size()-1], sizeof(double2)));
-    	cutilSafeCall(cudaMemcpyToSymbol(focal_dist_c, &control_dist, sizeof(double)));
+        s1     = tstep;
+        tstep  = tstep + mix_params->dt + tstepx;
+        s2     = tstep - s1;
+        tstepx = mix_params->dt + tstepx - s2;
+        cudaMemcpyToSymbol(tstep_c,       &tstep,                     sizeof(double));
+        cudaMemcpyToSymbol(focal_point_c, &control[control.size()-1], sizeof(double2));
+        cudaMemcpyToSymbol(focal_dist_c,  &control_dist,              sizeof(double));
         checkCUDAError("Set timestamp");
 
         // Store Bubble and Mixture, and predict void fraction
-        if (store_variables(mixture_htod, bubbles_htod, f_g_width, p_width, Work_width, f_g_pitch, Work_pitch, p_pitch, stream, stop))
-        {
-            exit(EXIT_FAILURE);
-        }
+        store_variables(mixture_htod, bubbles_htod,
+                        pitches, widths,
+                        stream, stop);
 
         // Update mixture velocity
-        if (calculate_velocity_field(vx_width, vy_width, rho_m_width, p0_width, c_sl_width, stream, stop))
-        {
-            exit(EXIT_FAILURE);
-        }
+        calculate_velocity_field(widths, stream, stop);
 
         // Move the bubbles
-        if (bub_params->enabled && bubble_motion(bubbles_htod, vx_width, vy_width, stream, stop))
+        if (bub_params->enabled)
         {
-            exit(EXIT_FAILURE);
+            bubble_motion(bubbles_htod, widths, stream, stop);
         }
 
         // Calculate pressure
-        resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream, stop);
+        resimax = calculate_pressure_field(mixture_h,
+                                           mixture_htod,
+                                           mix_params->P_inf,
+                                           pitches, widths,
+                                           stream, stop);
 
         // Subloop for solving Rayleigh Plesset equations
         if (bub_params->enabled)
@@ -247,45 +245,44 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
                 loop++;
 
                 // Find bubble pressure
-                if (interpolate_bubble_pressure(p0_width, stream, stop))
-                {
-                    exit(EXIT_FAILURE);
-                }
+                interpolate_bubble_pressure(widths, stream, stop);
 
                 // Solve Rayleigh-Plesset Equations
-                max_iter = max(solve_bubble_radii(bubbles_htod, stream, stop), max_iter);
+                max_iter = max(solve_bubble_radii(bubbles_htod, stream, stop),
+                               max_iter);
 
                 // Calculate Void Fraction
-                if (calculate_void_fraction(mixture_htod, plane_wave, f_g_width, f_g_pitch, stream, stop))
-                {
-                    exit(EXIT_FAILURE);
-                }
+                calculate_void_fraction(mixture_htod,
+                                        plane_wave,
+                                        pitches, widths,
+                                        stream, stop);
 
                 // Calculate Pressure
-                resimax = calculate_pressure_field(mixture_h, mixture_htod, mix_params->P_inf, p0_width, p_width, f_g_width, vx_width, vy_width, rho_l_width, c_sl_width, Work_width, Work_pitch, stream, stop);
+                resimax = calculate_pressure_field(mixture_h,
+                                                   mixture_htod,
+                                                   mix_params->P_inf,
+                                                   pitches, widths,
+                                                   stream, stop);
 
 #ifdef _DEBUG_
                 printf("\033[A\033[2K");
-                printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n", nstep, loop, resimax, max_iter);
+                printf("Simulation step %5i subloop %5i \t resimax = %4.2E, inner loop executed %i times.\n",
+                       nstep,
+                       loop,
+                       resimax,
+                       max_iter);
 #endif
-                if (loop == 10000)
-                {
-                    printf("Premature Termination at nstep %i, subloop %i\n\n", nstep, loop);
-                    break;
-                }
             }
         }
 
         // Calculate mixture temperature
-        if (calculate_temperature(mixture_htod, bub_params, k_m_width, T_width, f_g_width, Ex_width, Ey_width, p_width, rho_m_width, C_pm_width, Work_width, Work_pitch, stream, stop))
-        {
-            exit(EXIT_FAILURE);
-        }
+        calculate_temperature(mixture_htod,
+                              bub_params,
+                              pitches, widths,
+                              stream, stop);
         // Calculate mixture properties
-        if (calculate_properties(rho_l_width, rho_m_width, c_sl_width, C_pm_width, f_g_width, T_width, stream, stop))
-        {
-            exit(EXIT_FAILURE);
-        }
+        calculate_properties(widths,
+                             stream, stop);
 
 #ifdef _DEBUG_
         if (system("clear"))
@@ -299,28 +296,60 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
         // Display progress
         if (sim_params->NSTEPMAX != 0)
         {
-            printf("Running the simulation...\t\tnstep : %5i / %i\t", nstep, sim_params->NSTEPMAX);
+            printf("Running the simulation...\t\tnstep : %5i / %i\t",
+                   nstep,
+                   sim_params->NSTEPMAX);
         }
         else if (sim_params->TSTEPMAX !=0)
         {
-            printf("Running the simulation...\t\ttstep : %4.2E / %4.2E\t", tstep, sim_params->TSTEPMAX);
+            printf("Running the simulation...\t\ttstep : %4.2E / %4.2E\t",
+                   tstep,
+                   sim_params->TSTEPMAX);
         }
 
-		focalpoint.push_back(make_double2(0.0, filter_loop(determine_focal_point(mixture_htod.Work, i2m, Work_width, j2m, grid_size->dx, grid_size->dy).y)));
-		printf("focal point is (%8.6E, %8.6E)\t", focalpoint[focalpoint.size()-1].x, focalpoint[focalpoint.size()-1].y);
+        focalpoint.push_back(
+            make_double2(
+                0.0,
+                filter_loop(
+                    determine_focal_point(mixture_htod.Work,
+                                          i2m,
+                                          widths.Work,
+                                          j2m,
+                                          grid_size->dx,
+                                          grid_size->dy).y
+                )
+            )
+        );
+        printf("focal point is (%8.6E, %8.6E)\t",
+               focalpoint[focalpoint.size()-1].x,
+               focalpoint[focalpoint.size()-1].y);
 
-		if(plane_wave->pid)
-		{
-			if (nstep > plane_wave->pid_start_step)
-			{
-				control.push_back(focal_PID(plane_wave->fp, focalpoint[focalpoint.size()-1], focalpoint[focalpoint.size()-2], &pid_derivative_err, &pid_cumulative_err, mix_params->dt));
-				control[control.size()-1] = make_double2(0.0, clamp<double>(control[control.size()-1].y, plane_wave->fp.y, grid_size->LY));
-				control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
-			}
-			printf("control focal point is (%+4.2E, %+4.2E)\t", control[control.size()-1].x, control[control.size()-1].y);
-			//cutilSafeCall(cudaMemcpyToSymbol(focal_point_c, &control, sizeof(double2)));
-			//cutilSafeCall(cudaMemcpyToSymbol(focal_dist_c, &control_dist, sizeof(double)));
-		}
+        if (plane_wave->pid)
+        {
+            if (nstep > plane_wave->pid_start_step)
+            {
+                control.push_back(
+                    focal_PID(plane_wave->fp,
+                              focalpoint[focalpoint.size()-1],
+                              focalpoint[focalpoint.size()-2],
+                              &pid_derivative_err,
+                              &pid_cumulative_err,
+                              mix_params->dt)
+                );
+                control[control.size()-1] = make_double2(
+                                                0.0,
+                                                clamp<double>(
+                                                    control[control.size()-1].y,
+                                                    plane_wave->fp.y,
+                                                    grid_size->LY
+                                                )
+                                            );
+                control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
+            }
+            printf("control focal point is (%+4.2E, %+4.2E)\t",
+                   control[control.size()-1].x,
+                   control[control.size()-1].y);
+        }
 
 #ifdef _DEBUG_
         printf("\n");
@@ -332,14 +361,35 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
         if ((((int)nstep) % ((int)sim_params->DATA_SAVE) == 0))
         {
             // Copy over requested variables
-            if (debug->p0)cudaMemcpy2D(	mixture_h.p0, sizeof(double)*i1m, mixture_htod.p0, p0_pitch, sizeof(double)*i1m, j1m, cudaMemcpyDeviceToHost);
-            if (debug->fg)cudaMemcpy2D(	mixture_h.f_g, sizeof(double)*i2m, mixture_htod.f_g, f_g_pitch, sizeof(double)*i2m, j2m, cudaMemcpyDeviceToHost);
-            if (debug->T)cudaMemcpy2D(	mixture_h.T, sizeof(double)*i2m, mixture_htod.T, T_pitch, sizeof(double)*i2m, j2m, 	cudaMemcpyDeviceToHost);
-            if (debug->vxy)cudaMemcpy2D(	mixture_h.vx, sizeof(double)*i2n, mixture_htod.vx, vx_pitch, sizeof(double)*i2n, j2m, cudaMemcpyDeviceToHost);
-            if (debug->vxy)cudaMemcpy2D(	mixture_h.vy, sizeof(double)*i2m, mixture_htod.vy, vy_pitch, sizeof(double)*i2m, j2n, cudaMemcpyDeviceToHost);
-            if (debug->bubbles)cudaMemcpy(	bubbles_h.pos, bubbles_htod.pos, sizeof(double2)*numBubbles, cudaMemcpyDeviceToHost);
-            if (debug->bubbles)cudaMemcpy(	bubbles_h.R_t, bubbles_htod.R_t, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
-            if (debug->bubbles)cudaMemcpy(	bubbles_h.PG_p, bubbles_htod.PG_p, sizeof(double)*numBubbles, cudaMemcpyDeviceToHost);
+            if (debug->p0)
+                cudaMemcpy2D(mixture_h.p0, sizeof(double)*i1m,
+                             mixture_htod.p0, pitches.p0, sizeof(double)*i1m, j1m,
+                             cudaMemcpyDeviceToHost);
+            if (debug->fg)
+                cudaMemcpy2D(mixture_h.f_g, sizeof(double)*i2m,
+                             mixture_htod.f_g, pitches.f_g, sizeof(double)*i2m, j2m,
+                             cudaMemcpyDeviceToHost);
+            if (debug->T)
+                cudaMemcpy2D(mixture_h.T, sizeof(double)*i2m,
+                             mixture_htod.T, pitches.T, sizeof(double)*i2m, j2m,
+                             cudaMemcpyDeviceToHost);
+            if (debug->vxy)
+                cudaMemcpy2D(mixture_h.vx, sizeof(double)*i2n,
+                             mixture_htod.vx, pitches.vx, sizeof(double)*i2n, j2m,
+                             cudaMemcpyDeviceToHost);
+            if (debug->vxy)
+                cudaMemcpy2D(mixture_h.vy, sizeof(double)*i2m,
+                             mixture_htod.vy, pitches.vy, sizeof(double)*i2m, j2n,
+                             cudaMemcpyDeviceToHost);
+            if (debug->bubbles)
+                cudaMemcpy(bubbles_h.pos, bubbles_htod.pos, sizeof(double2)*numBubbles,
+                           cudaMemcpyDeviceToHost);
+            if (debug->bubbles)
+                cudaMemcpy(bubbles_h.R_t, bubbles_htod.R_t, sizeof(double)*numBubbles,
+                           cudaMemcpyDeviceToHost);
+            if (debug->bubbles)
+                cudaMemcpy(bubbles_h.PG_p, bubbles_htod.PG_p, sizeof(double)*numBubbles,
+                           cudaMemcpyDeviceToHost);
 
             // Assign the data thread with saving the requested variables
 #ifdef _OUTPUT_
@@ -347,11 +397,17 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
             plan->tstep = (float)tstep;
             if (save_function & sph)
             {
-            	pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_sph, (void *)(plan));
+                pthread_create(&save_thread[pthread_count++],
+                               &pthread_custom_attr,
+                               save_sph,
+                               (void *)(plan));
             }
             else if (save_function & ascii)
             {
-            	pthread_create(&save_thread[pthread_count++], &pthread_custom_attr, save_ascii, (void *)(plan));
+                pthread_create(&save_thread[pthread_count++],
+                               &pthread_custom_attr,
+                               save_ascii,
+                               (void *)(plan));
             }
 #endif
 
@@ -393,7 +449,7 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
 #endif
     printf("Running the simulation...\t\tdone\n\n                                           ");
 
-	
+
 
     printf("Cleaning up...");
     // Destroy the variables to prevent further errors
@@ -411,17 +467,22 @@ thrust::tuple<bool,double2,double2,double2> solve_bubbles(	array_index_t	*array_
         cudaEventDestroy(stop[i]);
     }
     printf("\tdone\n\n");
-    return thrust::make_tuple(1, control[control.size()-1], pid_cumulative_err, pid_derivative_err);
+    return thrust::make_tuple(
+               1,
+               control[control.size()-1],
+               pid_cumulative_err,
+               pid_derivative_err
+           );
 } // solve_bubbles()
 
 // Initialize simulation variables
-int initialize_variables(	grid_t		*grid_size,
-                          PML_t		*PML,
-                          sim_params_t	*sim_params,
-                          plane_wave_t	*plane_wave,
-                          array_index_t	*array_index,
-                          mix_params_t	*mix_params,
-                          bub_params_t	*bub_params)
+int initialize_variables(grid_t        *grid_size,
+                         PML_t         *PML,
+                         sim_params_t  *sim_params,
+                         plane_wave_t  *plane_wave,
+                         array_index_t *array_index,
+                         mix_params_t  *mix_params,
+                         bub_params_t  *bub_params)
 {
     *grid_size = init_grid_size(*grid_size);
 
@@ -439,14 +500,21 @@ int initialize_variables(	grid_t		*grid_size,
 
     // Mixture
     *mix_params = init_mix();
-    mix_params->dt = mix_set_time_increment(*sim_params, min(grid_size->dx, grid_size->dy), mix_params->cs_inf);
+    mix_params->dt = mix_set_time_increment(*sim_params,
+                                            min(grid_size->dx,
+                                                grid_size->dy),
+                                            mix_params->cs_inf);
     mixture_h = init_mix_array(mix_params, *array_index);
 
     // Bubbles
     if (bub_params->enabled)
     {
         *bub_params = init_bub_params(*bub_params, *sim_params, mix_params->dt);
-        bubbles_h = init_bub_array(bub_params, mix_params, array_index, grid_size, plane_wave);
+        bubbles_h = init_bub_array(bub_params,
+                                   mix_params,
+                                   array_index,
+                                   grid_size,
+                                   plane_wave);
     }
 
     return 0;
@@ -455,12 +523,12 @@ int initialize_variables(	grid_t		*grid_size,
 // Initialize grid parameters
 grid_t init_grid_size(grid_t grid_size)
 {
-    grid_size.dx = (double)grid_size.LX / (double)grid_size.X;
-    grid_size.dy = (double)grid_size.LY / (double)grid_size.Y;
+    grid_size.dx =  (double)grid_size.LX / (double)grid_size.X;
+    grid_size.dy =  (double)grid_size.LY / (double)grid_size.Y;
     grid_size.rdx = (double) 1.0 / (double)grid_size.dx;
     grid_size.rdy = (double) 1.0 / (double)grid_size.dy;
 
-#ifdef	_DEBUG_
+#ifdef _DEBUG_
     printf("Grid Size Parameters\n");
     printf("dx = %E\tdy = %E\trdx = %E\trdy = %E\n\n",
            grid_size.dx,
@@ -472,8 +540,8 @@ grid_t init_grid_size(grid_t grid_size)
 }
 
 // Initialize plane wave coefficients
-plane_wave_t init_plane_wave(	plane_wave_t plane_wave,
-                              grid_t grid_size)
+plane_wave_t init_plane_wave(plane_wave_t plane_wave,
+                             grid_t grid_size)
 {
     if (plane_wave.f_dist)
     {
@@ -490,22 +558,22 @@ plane_wave_t init_plane_wave(	plane_wave_t plane_wave,
 }
 
 // Initializes the array index
-array_index_t init_array(	const grid_t grid_size,
-                          const sim_params_t sim_params)
+array_index_t init_array(const grid_t grid_size,
+                         const sim_params_t sim_params)
 {
 
     array_index_t a;
 
-//	a.lmax 	= (sim_params.deltaBand+1)*(sim_params.deltaBand+1);
-    a.ms 	= -sim_params.order/2 + 1;
-    a.me 	= sim_params.order + a.ms - 1;
-    a.ns 	= -sim_params.order/2;
-    a.ne 	= sim_params.order + a.ns - 1;
+//   a.lmax = (sim_params.deltaBand+1)*(sim_params.deltaBand+1);
+    a.ms = -sim_params.order/2 + 1;
+    a.me =  sim_params.order + a.ms - 1;
+    a.ns = -sim_params.order/2;
+    a.ne =  sim_params.order + a.ns - 1;
 
-    a.istam	= 1;
-    a.iendm	= grid_size.X;
-    a.istan	= a.istam - 1;
-    a.iendn	= a.iendm;
+    a.istam  = 1;
+    a.iendm  = grid_size.X;
+    a.istan  = a.istam - 1;
+    a.iendn  = a.iendm;
     a.ista1m = a.istan  + a.ms;
     a.iend1m = a.iendn  + a.me;
     a.ista1n = a.istam  + a.ns;
@@ -515,10 +583,10 @@ array_index_t init_array(	const grid_t grid_size,
     a.ista2n = a.ista1m + a.ns;
     a.iend2n = a.iend1m + a.ne;
 
-    a.jstam	= 1;
-    a.jendm	= grid_size.Y;
-    a.jstan	= a.jstam - 1;
-    a.jendn	= a.jendm;
+    a.jstam  = 1;
+    a.jendm  = grid_size.Y;
+    a.jstan  = a.jstam - 1;
+    a.jendn  = a.jendm;
     a.jsta1m = a.jstan  + a.ms;
     a.jend1m = a.jendn  + a.me;
     a.jsta1n = a.jstam  + a.ns;
@@ -530,7 +598,7 @@ array_index_t init_array(	const grid_t grid_size,
 
 #ifdef _DEBUG_
     printf("Array Index\n");
-//	printf("lmax : %i\n", a.lmax);
+//  printf("lmax : %i\n", a.lmax);
     printf("ms : %i\t", a.ms);
     printf("me : %i\n", a.me);
     printf("ns : %i\t", a.ns);
@@ -568,19 +636,19 @@ array_index_t init_array(	const grid_t grid_size,
 mix_params_t init_mix()
 {
     mix_params_t mix_params;
-    mix_params.T_inf	= 293.15;
-    mix_params.P_inf	= 0.1e6;
-    mix_params.fg_inf	= 1.0e-7;
-    mix_params.rho_inf	= density_water(mix_params.P_inf,mix_params.T_inf);
-    mix_params.cs_inf	= adiabatic_sound_speed_water(mix_params.P_inf,mix_params.T_inf);
+    mix_params.T_inf   = 293.15;
+    mix_params.P_inf   = 0.1e6;
+    mix_params.fg_inf  = 1.0e-7;
+    mix_params.rho_inf = density_water(mix_params.P_inf,mix_params.T_inf);
+    mix_params.cs_inf  = adiabatic_sound_speed_water(mix_params.P_inf,mix_params.T_inf);
 
     return mix_params;
 } // init_mix()
 
 // Set the mixture time step
-double mix_set_time_increment(	sim_params_t sim_params,
-                               double dx_min,
-                               double u_max)
+double mix_set_time_increment(sim_params_t sim_params,
+                              double dx_min,
+                              double u_max)
 {
 #ifdef _DEBUG_
     printf("sim_params.cfl = %E\tdx_min = %E\tu_max = %E\n",sim_params.cfl, dx_min, u_max);
@@ -590,21 +658,21 @@ double mix_set_time_increment(	sim_params_t sim_params,
 } // mix_set_time_increment()
 
 // Initializes implicit bubble parameters
-bub_params_t init_bub_params(	bub_params_t bub_params,
-                              sim_params_t sim_params,
-                              double dt0)
+bub_params_t init_bub_params(bub_params_t bub_params,
+                             sim_params_t sim_params,
+                             double dt0)
 {
 
-    bub_params.R03		= bub_params.R0 * bub_params.R0 * bub_params.R0;
-    bub_params.PG0		= bub_params.PL0 + 2.0 * bub_params.sig/bub_params.R0;
-    bub_params.coeff_alpha	= bub_params.gam * bub_params.PG0 * bub_params.R03
+    bub_params.R03 = bub_params.R0 * bub_params.R0 * bub_params.R0;
+    bub_params.PG0 = bub_params.PL0 + 2.0 * bub_params.sig/bub_params.R0;
+    bub_params.coeff_alpha = bub_params.gam * bub_params.PG0 * bub_params.R03
                              / (2.0 * (bub_params.gam - 1.0) * bub_params.T0 * bub_params.K0);
-    bub_params.dt0		= 0.1 * dt0;
-    bub_params.npi		= 0;
-    bub_params.mbs		= -sim_params.deltaBand / 2 + 1;
-    bub_params.mbe		= sim_params.deltaBand + bub_params.mbs - 1;
-    bub_params.nbs		= -sim_params.deltaBand / 2;
-    bub_params.nbe		= sim_params.deltaBand + bub_params.nbs - 1;
+    bub_params.dt0 = 0.1 * dt0;
+    bub_params.npi = 0;
+    bub_params.mbs = -sim_params.deltaBand / 2 + 1;
+    bub_params.mbe =  sim_params.deltaBand + bub_params.mbs - 1;
+    bub_params.nbs = -sim_params.deltaBand / 2;
+    bub_params.nbe =  sim_params.deltaBand + bub_params.nbs - 1;
 #ifdef _DEBUG_
     printf("Bubble Parameters\n");
     printf("PG0 = %E\tdt0 = %E\nmbs = %i\tmbe = %i\tnbs = %i\tnbe = %i\n\n",
@@ -619,8 +687,8 @@ bub_params_t init_bub_params(	bub_params_t bub_params,
 } // init_bub_params()
 
 // Initializes useful index variables
-grid_gen init_grid_vector (	array_index_t array_index,
-                            grid_t grid_size)
+grid_gen init_grid_vector (array_index_t array_index,
+                           grid_t grid_size)
 {
     grid_gen grid;
 
@@ -645,8 +713,8 @@ grid_gen init_grid_vector (	array_index_t array_index,
 } // init_grid_vector()
 
 // Initialize the host mixture array
-mixture_t init_mix_array(	mix_params_t * mix_params,
-                          array_index_t array_index)
+mixture_t init_mix_array(mix_params_t * mix_params,
+                         array_index_t array_index)
 {
     mixture_t mix;
 
@@ -654,12 +722,18 @@ mixture_t init_mix_array(	mix_params_t * mix_params,
     printf("Mixing mixture...\n");
 #endif
 
-    int m1Vol = (array_index.iend1m - array_index.ista1m + 1) * (array_index.jend1m - array_index.jsta1m + 1);
-    int m2Vol = (array_index.iend2m - array_index.ista2m + 1) * (array_index.jend2m - array_index.jsta2m + 1);
-    int v_xVol = (array_index.iend2n - array_index.ista2n + 1) * (array_index.jend2m - array_index.jsta2m + 1);
-    int v_yVol = (array_index.iend2m - array_index.ista2m + 1) * (array_index.jend2n - array_index.jsta2n + 1);
-    int E_xVol = (array_index.iend1n - array_index.ista1n + 1) * (array_index.jend1m - array_index.jsta1m + 1);
-    int E_yVol = (array_index.iend1m - array_index.ista1m + 1) * (array_index.jend1n - array_index.jsta1n + 1);
+    int m1Vol =  (array_index.iend1m - array_index.ista1m + 1)
+                 * (array_index.jend1m - array_index.jsta1m + 1);
+    int m2Vol =  (array_index.iend2m - array_index.ista2m + 1)
+                 * (array_index.jend2m - array_index.jsta2m + 1);
+    int v_xVol = (array_index.iend2n - array_index.ista2n + 1)
+                 * (array_index.jend2m - array_index.jsta2m + 1);
+    int v_yVol = (array_index.iend2m - array_index.ista2m + 1)
+                 * (array_index.jend2n - array_index.jsta2n + 1);
+    int E_xVol = (array_index.iend1n - array_index.ista1n + 1)
+                 * (array_index.jend1m - array_index.jsta1m + 1);
+    int E_yVol = (array_index.iend1m - array_index.ista1m + 1)
+                 * (array_index.jend1n - array_index.jsta1n + 1);
 
     cudaMallocHost((void**)&mix.T, m2Vol*sizeof(double));
     cudaMallocHost((void**)&mix.p0, m1Vol*sizeof(double));
@@ -681,10 +755,10 @@ mixture_t init_mix_array(	mix_params_t * mix_params,
 
     for (int i = 0; i < m1Vol; i++)
     {
-        mix.p0[i]	= 0.0;
-        mix.p[i]	= make_double2(0.0, 0.0);
-        mix.pn[i]	= make_double2(0.0, 0.0);
-        mix.rho_m[i]	= mix.rho_l[i] = density_water(mix_params->P_inf, mix_params->T_inf);
+        mix.p0[i]    = 0.0;
+        mix.p[i]     = make_double2(0.0, 0.0);
+        mix.pn[i]    = make_double2(0.0, 0.0);
+        mix.rho_m[i] = mix.rho_l[i] = density_water(mix_params->P_inf, mix_params->T_inf);
 
         mix.c_sl[i] = adiabatic_sound_speed_water(mix_params->P_inf, mix_params->T_inf);
 
@@ -720,11 +794,11 @@ mixture_t init_mix_array(	mix_params_t * mix_params,
 } // init_mix_array()
 
 // Initialize the host bubble array
-bubble_t init_bub_array(	bub_params_t *bub_params,
-                         mix_params_t *mix_params,
-                         array_index_t *array_index,
-                         grid_t *grid_size,
-                         plane_wave_t *plane_wave)
+bubble_t init_bub_array(bub_params_t *bub_params,
+                        mix_params_t *mix_params,
+                        array_index_t *array_index,
+                        grid_t *grid_size,
+                        plane_wave_t *plane_wave)
 {
     double2 pos = make_double2(0.0, 0.0);
     host_vector<bubble_t_aos> bub;
@@ -741,25 +815,24 @@ bubble_t init_bub_array(	bub_params_t *bub_params,
         {
             pos.y = ( (double)j - 0.5) * grid_size->dy;
 
-            if (plane_wave->box_size)
+            if (plane_wave->box_size
+                    && (abs(pos.x - plane_wave->fp.x) < 0.5 * plane_wave->box_size)
+                    && (abs(pos.y - plane_wave->fp.y) < 0.5 * plane_wave->box_size))
             {
-                if ((abs(pos.x - plane_wave->fp.x) < 0.5 * plane_wave->box_size)  &&(abs(pos.y - plane_wave->fp.y) < 0.5 * plane_wave->box_size) )
-                {
-                    init_bubble = bubble_input(	pos,
-                                                bub_params->fg0,
-                                                *bub_params,
-                                                *grid_size,
-                                                *plane_wave);
-                    bub.push_back(init_bubble);
-                }
+                init_bubble = bubble_input(pos,
+                                           bub_params->fg0,
+                                           *bub_params,
+                                           *grid_size,
+                                           *plane_wave);
+                bub.push_back(init_bubble);
             }
-            else
+            else if (!(plane_wave->box_size))
             {
-                init_bubble = bubble_input(	pos,
-                                            bub_params->fg0,
-                                            *bub_params,
-                                            *grid_size,
-                                            *plane_wave);
+                init_bubble = bubble_input(pos,
+                                           bub_params->fg0,
+                                           *bub_params,
+                                           *grid_size,
+                                           *plane_wave);
                 bub.push_back(init_bubble);
             }
         }
@@ -793,29 +866,29 @@ bubble_t init_bub_array(	bub_params_t *bub_params,
 
     for (int i = 0; i < bub_params->npi; i++)
     {
-        ret_bub.ibm[i]		= bub[i].ibm;
-        ret_bub.ibn[i]		= bub[i].ibn;
-        ret_bub.pos[i]		= bub[i].pos;
-        ret_bub.R_t[i]		= bub[i].R_t;
-        ret_bub.R_p[i]		= bub[i].R_p;
-        ret_bub.R_pn[i]		= bub[i].R_pn;
-        ret_bub.R_n[i]		= bub[i].R_n;
-        ret_bub.R_nn[i]		= bub[i].R_nn;
-        ret_bub.d1_R_p[i]	= bub[i].d1_R_p;
-        ret_bub.d1_R_n[i]	= bub[i].d1_R_n;
-        ret_bub.PG_p[i]		= bub[i].PG_p;
-        ret_bub.PG_n[i]		= bub[i].PG_n;
-        ret_bub.PL_p[i]		= bub[i].PL_p;
-        ret_bub.PL_n[i]		= bub[i].PL_n;
-        ret_bub.PL_m[i]		= bub[i].PL_m;
-        ret_bub.Q_B[i]		= bub[i].Q_B;
-        ret_bub.n_B[i]		= bub[i].n_B;
-        ret_bub.dt[i]		= bub[i].dt;
-        ret_bub.dt_n[i]		= bub[i].dt_n;
-        ret_bub.re[i]		= bub[i].re;
-        ret_bub.re_n[i]		= bub[i].re_n;
-        ret_bub.v_B[i]		= bub[i].v_B;
-        ret_bub.v_L[i]		= bub[i].v_L;
+        ret_bub.ibm[i]    = bub[i].ibm;
+        ret_bub.ibn[i]    = bub[i].ibn;
+        ret_bub.pos[i]    = bub[i].pos;
+        ret_bub.R_t[i]    = bub[i].R_t;
+        ret_bub.R_p[i]    = bub[i].R_p;
+        ret_bub.R_pn[i]   = bub[i].R_pn;
+        ret_bub.R_n[i]    = bub[i].R_n;
+        ret_bub.R_nn[i]   = bub[i].R_nn;
+        ret_bub.d1_R_p[i] = bub[i].d1_R_p;
+        ret_bub.d1_R_n[i] = bub[i].d1_R_n;
+        ret_bub.PG_p[i]   = bub[i].PG_p;
+        ret_bub.PG_n[i]   = bub[i].PG_n;
+        ret_bub.PL_p[i]   = bub[i].PL_p;
+        ret_bub.PL_n[i]   = bub[i].PL_n;
+        ret_bub.PL_m[i]   = bub[i].PL_m;
+        ret_bub.Q_B[i]    = bub[i].Q_B;
+        ret_bub.n_B[i]    = bub[i].n_B;
+        ret_bub.dt[i]     = bub[i].dt;
+        ret_bub.dt_n[i]   = bub[i].dt_n;
+        ret_bub.re[i]     = bub[i].re;
+        ret_bub.re_n[i]   = bub[i].re_n;
+        ret_bub.v_B[i]    = bub[i].v_B;
+        ret_bub.v_L[i]    = bub[i].v_L;
     }
 #ifdef _DEBUG_
     printf("%i bubbles initialized.\n\n", bub_params->npi);
@@ -824,56 +897,56 @@ bubble_t init_bub_array(	bub_params_t *bub_params,
 }
 
 // Create a new bubble object based on initial conditions
-bubble_t_aos bubble_input(	double2 pos,
-                           double fg_in,
-                           bub_params_t bub_params,
-                           grid_t grid_size,
-                           plane_wave_t plane_wave)
+bubble_t_aos bubble_input(double2 pos,
+                          double fg_in,
+                          bub_params_t bub_params,
+                          grid_t grid_size,
+                          plane_wave_t plane_wave)
 {
     bubble_t_aos new_bubble;
 
     double Pi = acos(-1.0);
 
-    new_bubble.pos 	= pos;
+    new_bubble.pos = pos;
 
-    new_bubble.R_t 	= bub_params.R0;
-    new_bubble.R_p	= new_bubble.R_pn	= bub_params.R0;
-    new_bubble.R_n	= new_bubble.R_nn	= bub_params.R0;
+    new_bubble.R_t = bub_params.R0;
+    new_bubble.R_p = new_bubble.R_pn = bub_params.R0;
+    new_bubble.R_n = new_bubble.R_nn = bub_params.R0;
 
-    new_bubble.d1_R_p	= new_bubble.d1_R_n	= 0.0;
+    new_bubble.d1_R_p = new_bubble.d1_R_n = 0.0;
 
-    new_bubble.PG_p	= new_bubble.PG_n	= bub_params.PG0;
+    new_bubble.PG_p = new_bubble.PG_n = bub_params.PG0;
 
-    new_bubble.PL_p	= new_bubble.PL_n	= new_bubble.PL_m	= 0.0;
+    new_bubble.PL_p = new_bubble.PL_n = new_bubble.PL_m = 0.0;
 
     if (plane_wave.cylindrical)
     {
-        new_bubble.n_B	= fg_in * (pos.x * grid_size.dx * grid_size.dy)
+        new_bubble.n_B = fg_in * (pos.x * grid_size.dx * grid_size.dy)
                          / (4.0 / 3.0 * Pi * pow(new_bubble.R_t,3));
     }
     else
     {
-        new_bubble.n_B	= fg_in * (grid_size.dx * grid_size.dy)
+        new_bubble.n_B = fg_in * (grid_size.dx * grid_size.dy)
                          / (4.0 / 3.0 * Pi * pow(new_bubble.R_t,3));
     }
 
-    new_bubble.Q_B	= 0.0;
+    new_bubble.Q_B = 0.0;
 
-    new_bubble.dt	= new_bubble.dt_n	= bub_params.dt0;
-    new_bubble.re	= new_bubble.re_n	= 0.0;
-    new_bubble.v_B	= new_bubble.v_L		= make_double2(0.0, 0.0);
+    new_bubble.dt  = new_bubble.dt_n = bub_params.dt0;
+    new_bubble.re  = new_bubble.re_n = 0.0;
+    new_bubble.v_B = new_bubble.v_L  = make_double2(0.0, 0.0);
 
-    new_bubble.ibm	= make_int2(0,0);
-    new_bubble.ibn	= make_int2(0,0);
+    new_bubble.ibm = make_int2(0,0);
+    new_bubble.ibn = make_int2(0,0);
 
     return new_bubble;
 }
 
 // Initializes the sigma field used for PML
-sigma_t init_sigma (	const PML_t PML,
-                     const sim_params_t sim_params,
-                     const grid_t grid_size,
-                     const array_index_t array_index)
+sigma_t init_sigma (const PML_t PML,
+                    const sim_params_t sim_params,
+                    const grid_t grid_size,
+                    const array_index_t array_index)
 {
 #ifdef _DEBUG_
     printf("Generating a perfectly matched layer.\n");
@@ -890,32 +963,32 @@ sigma_t init_sigma (	const PML_t PML,
     sigma.nx_size = (array_index.iend2n - array_index.ista2n + 1);
     sigma.ny_size = (array_index.jend2n - array_index.jsta2n + 1);
 
-    int 	n;
-    int 	itmps, itmpe, jtmps, jtmpe;
-    double	sigma_x_max, sigma_y_max;
-    int	npml = PML.NPML;
-    double	sig = PML.sigma;
-    double	order	=	PML.order;
-    double	dx	=	grid_size.dx;
-    double	dy	=	grid_size.dy;
-    int	nx	=	grid_size.X;
-    int	ny	=	grid_size.Y;
-    int	istam	=	array_index.istam;
-    int	iendm	=	array_index.iendm;
-    int	jstam	=	array_index.jstam;
-    int	jendm	=	array_index.jendm;
-    int	istan	=	array_index.istan;
-    int	iendn	=	array_index.iendn;
-    int	jstan	=	array_index.jstan;
-    int	jendn	=	array_index.jendn;
-    int	ista1m	=	array_index.ista1m;
-    int	jsta1m	=	array_index.jsta1m;
-    int	ista2n	=	array_index.ista2n;
-    int	jsta2n	=	array_index.jsta2n;
-    int	ms	=	array_index.ms;
-    int	me	=	array_index.me;
-    int	ns	=	array_index.ns;
-    int	ne	=	array_index.ne;
+    int    n;
+    int    itmps, itmpe, jtmps, jtmpe;
+    double sigma_x_max, sigma_y_max;
+    int    npml   = PML.NPML;
+    double sig    = PML.sigma;
+    double order  = PML.order;
+    double dx     = grid_size.dx;
+    double dy     = grid_size.dy;
+    int    nx     = grid_size.X;
+    int    ny     = grid_size.Y;
+    int    istam  = array_index.istam;
+    int    iendm  = array_index.iendm;
+    int    jstam  = array_index.jstam;
+    int    jendm  = array_index.jendm;
+    int    istan  = array_index.istan;
+    int    iendn  = array_index.iendn;
+    int    jstan  = array_index.jstan;
+    int    jendn  = array_index.jendn;
+    int    ista1m = array_index.ista1m;
+    int    jsta1m = array_index.jsta1m;
+    int    ista2n = array_index.ista2n;
+    int    jsta2n = array_index.jsta2n;
+    int    ms     = array_index.ms;
+    int    me     = array_index.me;
+    int    ns     = array_index.ns;
+    int    ne     = array_index.ne;
 
     if (PML.X0)
     {
@@ -931,7 +1004,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int i = itmps; i <= itmpe; i++)
             {
                 n = npml - i + 1;
-                sigma.mx[i - ista1m]	= sigma_x_max * pow(((double)n-0.5)/((double)npml), order);
+                sigma.mx[i - ista1m] = sigma_x_max
+                                       * pow(((double)n-0.5)/((double)npml),
+                                             order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.mx[i-ista1m]);
 #endif
@@ -955,9 +1030,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int i = itmps; i <= itmpe; i++)
             {
                 n = i - nx + npml;
-                sigma.mx[i - ista1m]	= sigma_x_max * pow(	((double)n-0.5)
-                                       /((double)npml),
-                                       order);
+                sigma.mx[i - ista1m] = sigma_x_max *
+                                       pow(((double)n-0.5)/((double)npml),
+                                           order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.mx[i-ista1m]);
 #endif
@@ -981,9 +1056,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int j = jtmps; j <= jtmpe; j++)
             {
                 n = npml - j + 1;
-                sigma.my[j - jsta1m]	= sigma_y_max * pow(	((double)n-0.5)
-                                       /((double)npml),
-                                       order);
+                sigma.my[j - jsta1m] = sigma_y_max
+                                       * pow(((double)n-0.5)/((double)npml),
+                                             order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.my[j-jsta1m]);
 #endif
@@ -1007,9 +1082,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int j = jtmps; j <= jtmpe; j++)
             {
                 n = j - ny + npml;
-                sigma.my[j - jsta1m]	= sigma_y_max * pow(	((double)n-0.5)
-                                       /((double)npml),
-                                       order);
+                sigma.my[j - jsta1m] = sigma_y_max
+                                       * pow(((double)n-0.5)/((double)npml),
+                                             order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.my[j-jsta1m]);
 #endif
@@ -1033,9 +1108,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int i = itmps; i <= itmpe; i++)
             {
                 n = npml - i;
-                sigma.nx[i - ista2n]	= sigma_x_max * pow(	((double)n)
-                                       /((double)npml),
-                                       order);
+                sigma.nx[i - ista2n] = sigma_x_max
+                                       * pow(((double)n)/((double)npml),
+                                             order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.nx[i-ista2n]);
 #endif
@@ -1059,9 +1134,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int i = itmps; i <= itmpe; i++)
             {
                 n = i - nx + npml;
-                sigma.nx[i - ista2n]	= sigma_x_max * pow(	((double)n)
-                                       /((double)npml),
-                                       order);
+                sigma.nx[i - ista2n] = sigma_x_max
+                                       * pow(((double)n)/((double)npml),
+                                             order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.nx[i-ista2n]);
 #endif
@@ -1085,9 +1160,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int j = jtmps; j <= jtmpe; j++)
             {
                 n = npml - j;
-                sigma.ny[j - jsta2n]	= sigma_y_max * pow(	((double)n)
-                                       /((double)npml),
-                                       order);
+                sigma.ny[j - jsta2n] = sigma_y_max
+                                       * pow(((double)n)/((double)npml),
+                                             order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.ny[j-jsta2n]);
 #endif
@@ -1111,9 +1186,9 @@ sigma_t init_sigma (	const PML_t PML,
             for (int j = jtmps; j <= jtmpe; j++)
             {
                 n = j - ny + npml;
-                sigma.ny[j - jsta2n]	= sigma_y_max * pow(	((double)n)
-                                       /((double)npml),
-                                       order);
+                sigma.ny[j - jsta2n] = sigma_y_max
+                                       * pow(((double)n)/((double)npml),
+                                             order);
 #ifdef _DEBUG_
                 printf("%4.2E\t",sigma.ny[j-jsta2n]);
 #endif
@@ -1153,13 +1228,13 @@ void setCUDAflags()
 }
 
 // Allocate and copy variables on device memory
-int initialize_CUDA_variables(	grid_t		*grid_size,
-                               PML_t		*PML,
-                               sim_params_t	*sim_params,
-                               plane_wave_t	*plane_wave,
-                               array_index_t	*array_index,
-                               mix_params_t	*mix_params,
-                               bub_params_t	*bub_params)
+int initialize_CUDA_variables(grid_t      *grid_size,
+                              PML_t      *PML,
+                              sim_params_t	*sim_params,
+                              plane_wave_t	*plane_wave,
+                              array_index_t	*array_index,
+                              mix_params_t	*mix_params,
+                              bub_params_t	*bub_params)
 {
 
     j0m  = array_index->jendm  - array_index->jstam + 1;
@@ -1181,141 +1256,135 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
     E_yVol = i1m * j1n;
 
     cudaMalloc(	(void **)&mixture_htod,		sizeof(mixture_t));
-    cudaMallocPitch((void **)&mixture_htod.T, 	&T_pitch,	sizeof(double)*i2m, j2m);
-    cudaMallocPitch((void **)&mixture_htod.vx, 	&vx_pitch,	sizeof(double)*i2n, j2m);
-    cudaMallocPitch((void **)&mixture_htod.vy, 	&vy_pitch,	sizeof(double)*i2m, j2n);
-    cudaMallocPitch((void **)&mixture_htod.c_sl, 	&c_sl_pitch,	sizeof(double)*i1m, j1m);
-    cudaMallocPitch((void **)&mixture_htod.rho_m, 	&rho_m_pitch,	sizeof(double)*i1m, j1m);
-    cudaMallocPitch((void **)&mixture_htod.rho_l, 	&rho_l_pitch,	sizeof(double)*i1m, j1m);
-    cudaMallocPitch((void **)&mixture_htod.f_g, 	&f_g_pitch,	sizeof(double)*i2m, j2m);
-    cudaMallocPitch((void **)&mixture_htod.f_gn, 	&f_gn_pitch,	sizeof(double)*i2m, j2m);
-    cudaMallocPitch((void **)&mixture_htod.f_gm, 	&f_gm_pitch,	sizeof(double)*i2m, j2m);
-    cudaMallocPitch((void **)&mixture_htod.k_m, 	&k_m_pitch,	sizeof(double)*i2m, j2m);
-    cudaMallocPitch((void **)&mixture_htod.C_pm, 	&C_pm_pitch,	sizeof(double)*i1m, j1m);
-    cudaMallocPitch((void **)&mixture_htod.Work, 	&Work_pitch,	sizeof(double)*i2m, j2m);
-    cudaMallocPitch((void **)&mixture_htod.Ex, 	&Ex_pitch,	sizeof(double)*i1n, j1m);
-    cudaMallocPitch((void **)&mixture_htod.Ey, 	&Ey_pitch,	sizeof(double)*i1m, j1n);
-    cudaMallocPitch((void **)&mixture_htod.p0, 	&p0_pitch,	sizeof(double)*i1m, j1m);
-    cudaMallocPitch((void **)&mixture_htod.p, 	&p_pitch,	sizeof(double2)*i1m, j1m);
-    cudaMallocPitch((void **)&mixture_htod.pn, 	&pn_pitch,	sizeof(double2)*i1m, j1m);
+    cudaMallocPitch((void **)&mixture_htod.T, 	&pitches.T,	sizeof(double)*i2m, j2m);
+    cudaMallocPitch((void **)&mixture_htod.vx, 	&pitches.vx,	sizeof(double)*i2n, j2m);
+    cudaMallocPitch((void **)&mixture_htod.vy, 	&pitches.vy,	sizeof(double)*i2m, j2n);
+    cudaMallocPitch((void **)&mixture_htod.c_sl, 	&pitches.c_sl,	sizeof(double)*i1m, j1m);
+    cudaMallocPitch((void **)&mixture_htod.rho_m, 	&pitches.rho_m,	sizeof(double)*i1m, j1m);
+    cudaMallocPitch((void **)&mixture_htod.rho_l, 	&pitches.rho_l,	sizeof(double)*i1m, j1m);
+    cudaMallocPitch((void **)&mixture_htod.f_g, 	&pitches.f_g,	sizeof(double)*i2m, j2m);
+    cudaMallocPitch((void **)&mixture_htod.f_gn, 	&pitches.f_gn,	sizeof(double)*i2m, j2m);
+    cudaMallocPitch((void **)&mixture_htod.f_gm, 	&pitches.f_gm,	sizeof(double)*i2m, j2m);
+    cudaMallocPitch((void **)&mixture_htod.k_m, 	&pitches.k_m,	sizeof(double)*i2m, j2m);
+    cudaMallocPitch((void **)&mixture_htod.C_pm, 	&pitches.C_pm,	sizeof(double)*i1m, j1m);
+    cudaMallocPitch((void **)&mixture_htod.Work, 	&pitches.Work,	sizeof(double)*i2m, j2m);
+    cudaMallocPitch((void **)&mixture_htod.Ex, 	&pitches.Ex,	sizeof(double)*i1n, j1m);
+    cudaMallocPitch((void **)&mixture_htod.Ey, 	&pitches.Ey,	sizeof(double)*i1m, j1n);
+    cudaMallocPitch((void **)&mixture_htod.p0, 	&pitches.p0,	sizeof(double)*i1m, j1m);
+    cudaMallocPitch((void **)&mixture_htod.p, 	&pitches.p,	sizeof(double2)*i1m, j1m);
+    cudaMallocPitch((void **)&mixture_htod.pn, 	&pitches.pn,	sizeof(double2)*i1m, j1m);
 
 #ifdef _DEBUG_
-    printf("T_pitch = %i\n", (int)T_pitch);
-    printf("vx_pitch = %i\n", (int)vx_pitch);
-    printf("vy_pitch = %i\n", (int)vy_pitch);
-    printf("c_sl_pitch = %i\n", (int)c_sl_pitch);
-    printf("rho_m_pitch = %i\n", (int)rho_m_pitch);
-    printf("rho_l_pitch = %i\n", (int)rho_l_pitch);
-    printf("f_g_pitch = %i\n", (int)f_g_pitch);
-    printf("f_gn_pitch = %i\n", (int)f_gn_pitch);
-    printf("f_gm_pitch = %i\n", (int)f_gm_pitch);
-    printf("k_m_pitch = %i\n", (int)k_m_pitch);
-    printf("C_pm_pitch = %i\n", (int)C_pm_pitch);
-    printf("Work_pitch = %i\n", (int)Work_pitch);
-    printf("Ex_pitch = %i\n", (int)Ex_pitch);
-    printf("Ey_pitch = %i\n", (int)Ey_pitch);
-    printf("p0_pitch = %i\n", (int)p0_pitch);
-    printf("p_pitch = %i\n", (int)p_pitch);
-    printf("pn_pitch = %i\n", (int)pn_pitch);
+    printf("T = %i\n", (int)pitches.T);
+    printf("vx = %i\n", (int)pitches.vx);
+    printf("vy = %i\n", (int)pitches.vy);
+    printf("c_sl = %i\n", (int)pitches.c_sl);
+    printf("rho_m = %i\n", (int)pitches.rho_m);
+    printf("rho_l = %i\n", (int)pitches.rho_l);
+    printf("f_g = %i\n", (int)pitches.f_g);
+    printf("f_gn = %i\n", (int)pitches.f_gn);
+    printf("f_gm = %i\n", (int)pitches.f_gm);
+    printf("k_m = %i\n", (int)pitches.k_m);
+    printf("C_pm = %i\n", (int)pitches.C_pm);
+    printf("Work = %i\n", (int)pitches.Work);
+    printf("Ex = %i\n", (int)pitches.Ex);
+    printf("Ey = %i\n", (int)pitches.Ey);
+    printf("p0 = %i\n", (int)pitches.p0);
+    printf("p = %i\n", (int)pitches.p);
+    printf("pn = %i\n", (int)pitches.pn);
 #endif
 
     if (bub_params->enabled)
     {
-        cudaMalloc((void **)	&bubbles_htod,		sizeof(bubble_t));
-        cudaMalloc((void **)	&bubbles_htod.ibm,	sizeof(int2)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.ibn,	sizeof(int2)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.pos,	sizeof(double2)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.R_t,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.R_p,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.R_pn,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.R_n,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.R_nn,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.d1_R_p,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.d1_R_n,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.PG_p,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.PG_n,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.PL_p,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.PL_n,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.PL_m,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.Q_B,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.n_B,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.dt,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.dt_n,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.re,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.re_n,	sizeof(double)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.v_B,	sizeof(double2)*numBubbles);
-        cudaMalloc((void **)	&bubbles_htod.v_L,	sizeof(double2)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod,        sizeof(bubble_t));
+        cudaMalloc((void **)&bubbles_htod.ibm,    sizeof(int2)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.ibn,    sizeof(int2)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.pos,    sizeof(double2)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.R_t,    sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.R_p,    sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.R_pn,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.R_n,    sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.R_nn,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.d1_R_p, sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.d1_R_n, sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.PG_p,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.PG_n,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.PL_p,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.PL_n,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.PL_m,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.Q_B,    sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.n_B,    sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.dt,     sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.dt_n,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.re,     sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.re_n,   sizeof(double)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.v_B,    sizeof(double2)*numBubbles);
+        cudaMalloc((void **)&bubbles_htod.v_L,    sizeof(double2)*numBubbles);
     }
 
-    cudaMalloc((void **)	&sigma_htod,		sizeof(sigma_t));
-    cudaMalloc((void **)	&sigma_htod.mx,		sizeof(double)*sigma_h.mx_size);
-    cudaMalloc((void **)	&sigma_htod.my,		sizeof(double)*sigma_h.my_size);
-    cudaMalloc((void **)	&sigma_htod.nx,		sizeof(double)*sigma_h.nx_size);
-    cudaMalloc((void **)	&sigma_htod.ny,		sizeof(double)*sigma_h.ny_size);
+    cudaMalloc((void **)&sigma_htod,    sizeof(sigma_t));
+    cudaMalloc((void **)&sigma_htod.mx, sizeof(double)*sigma_h.mx_size);
+    cudaMalloc((void **)&sigma_htod.my, sizeof(double)*sigma_h.my_size);
+    cudaMalloc((void **)&sigma_htod.nx, sizeof(double)*sigma_h.nx_size);
+    cudaMalloc((void **)&sigma_htod.ny, sizeof(double)*sigma_h.ny_size);
 
-    cudaMalloc((void **)	&grid_htod,		sizeof(grid_gen));
-    cudaMalloc((void **)	&grid_htod.xu,		sizeof(double)*grid_h.xu_size);
-    cudaMalloc((void **)	&grid_htod.rxp,		sizeof(double)*grid_h.rxp_size);;
+    cudaMalloc((void **)&grid_htod,     sizeof(grid_gen));
+    cudaMalloc((void **)&grid_htod.xu,  sizeof(double)*grid_h.xu_size);
+    cudaMalloc((void **)&grid_htod.rxp, sizeof(double)*grid_h.rxp_size);;
 
     checkCUDAError("Memory Allocation");
 
-//	cudaMemcpy(&mixture_htod,	&mixture_h,
-//			sizeof(mixture_t),	cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.T, T_pitch,
-                  mixture_h.T, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
-                  cudaMemcpyHostToDevice);
-    checkCUDAError("T To Device");
-    cudaMemcpy2D(	mixture_htod.p0, p0_pitch,
-                  mixture_h.p0, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
-                  cudaMemcpyHostToDevice);
-    checkCUDAError("p0 To Device");
-    cudaMemcpy2D(	mixture_htod.p, p_pitch,
-                  mixture_h.p, sizeof(double2)*i1m, sizeof(double2)*i1m, j1m,
-                  cudaMemcpyHostToDevice);
-    checkCUDAError("p To Device");
-    cudaMemcpy2D(	mixture_htod.pn, pn_pitch,
-                  mixture_h.pn, sizeof(double2)*i1m, sizeof(double2)*i1m, j1m,
-                  cudaMemcpyHostToDevice);
-    checkCUDAError("pn To Device");
-    cudaMemcpy2D(	mixture_htod.vx, vx_pitch,
-                  mixture_h.vx, sizeof(double)*i2n, sizeof(double)*i2n, j2m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.vy, vy_pitch,
-                  mixture_h.vy, sizeof(double)*i2m, sizeof(double)*i2m, j2n,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.c_sl, c_sl_pitch,
-                  mixture_h.c_sl, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.rho_m, rho_m_pitch,
-                  mixture_h.rho_m, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.rho_l, rho_l_pitch,
-                  mixture_h.rho_l, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.f_g, f_g_pitch,
-                  mixture_h.f_g, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.f_gn, f_gn_pitch,
-                  mixture_h.f_gn, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.f_gm, f_gm_pitch,
-                  mixture_h.f_gm, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.k_m, k_m_pitch,
-                  mixture_h.k_m, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.C_pm, C_pm_pitch,
-                  mixture_h.C_pm, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.Work, Work_pitch,
-                  mixture_h.Work, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.Ex, Ex_pitch,
-                  mixture_h.Ex, sizeof(double)*i1n, sizeof(double)*i1n, j1m,
-                  cudaMemcpyHostToDevice);
-    cudaMemcpy2D(	mixture_htod.Ey, Ey_pitch,
-                  mixture_h.Ey, sizeof(double)*i1m, sizeof(double)*i1m, j1n,
-                  cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.T, pitches.T,
+                 mixture_h.T, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.p0, pitches.p0,
+                 mixture_h.p0, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.p, pitches.p,
+                 mixture_h.p, sizeof(double2)*i1m, sizeof(double2)*i1m, j1m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.pn, pitches.pn,
+                 mixture_h.pn, sizeof(double2)*i1m, sizeof(double2)*i1m, j1m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.vx, pitches.vx,
+                 mixture_h.vx, sizeof(double)*i2n, sizeof(double)*i2n, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.vy, pitches.vy,
+                 mixture_h.vy, sizeof(double)*i2m, sizeof(double)*i2m, j2n,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.c_sl, pitches.c_sl,
+                 mixture_h.c_sl, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.rho_m, pitches.rho_m,
+                 mixture_h.rho_m, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.rho_l, pitches.rho_l,
+                 mixture_h.rho_l, sizeof(double)*i1m, sizeof(double)*i1m, j1m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.f_g, pitches.f_g,
+                 mixture_h.f_g, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.f_gn, pitches.f_gn,
+                 mixture_h.f_gn, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.f_gm, pitches.f_gm,
+                 mixture_h.f_gm, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.k_m, pitches.k_m,
+                 mixture_h.k_m, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.C_pm, pitches.C_pm,
+                 mixture_h.C_pm, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.Work, pitches.Work,
+                 mixture_h.Work, sizeof(double)*i2m, sizeof(double)*i2m, j2m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.Ex, pitches.Ex,
+                 mixture_h.Ex, sizeof(double)*i1n, sizeof(double)*i1n, j1m,
+                 cudaMemcpyHostToDevice);
+    cudaMemcpy2D(mixture_htod.Ey, pitches.Ey,
+                 mixture_h.Ey, sizeof(double)*i1m, sizeof(double)*i1m, j1n,
+                 cudaMemcpyHostToDevice);
 
 
     checkCUDAError("Mixture To Device");
@@ -1397,30 +1466,30 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
     // Throw constants into cache
     double3 tmp;
 
-    tmp.x = 1.0/((double)sim_params->deltaBand);
+    tmp.x = 1.0 / ((double)sim_params->deltaBand);
     tmp.y = 2.0 * acos(-1.0) / ((double)sim_params->deltaBand) * grid_size->rdx;
     tmp.z = 2.0 * acos(-1.0) / ((double)sim_params->deltaBand) * grid_size->rdy;
 
-    cutilSafeCall(cudaMemcpyToSymbol(mixture_c,	&mixture_htod,	sizeof(mixture_t)));
+    cudaMemcpyToSymbol(mixture_c, &mixture_htod, sizeof(mixture_t));
 
-    cutilSafeCall(cudaMemcpyToSymbol(sigma_c, &sigma_htod, sizeof(sigma_t)));
-    cutilSafeCall(cudaMemcpyToSymbol(gridgen_c, &grid_htod, sizeof(grid_gen)));
+    cudaMemcpyToSymbol(sigma_c,   &sigma_htod, sizeof(sigma_t));
+    cudaMemcpyToSymbol(gridgen_c, &grid_htod,  sizeof(grid_gen));
 
-    cutilSafeCall(cudaMemcpyToSymbol(Pi, &Pi_h, sizeof(double)));
-    cutilSafeCall(cudaMemcpyToSymbol(Pi4r3, &Pi4r3_h, sizeof(double)));
-    cutilSafeCall(cudaMemcpyToSymbol(delta_coef, &tmp, sizeof(double3)));
-    cutilSafeCall(cudaMemcpyToSymbol(array_c, array_index, sizeof(array_index_t)));
-    cutilSafeCall(cudaMemcpyToSymbol(grid_c, grid_size, sizeof(grid_t)));
-    cutilSafeCall(cudaMemcpyToSymbol(sim_params_c, sim_params, sizeof(sim_params_t)));
-    cutilSafeCall(cudaMemcpyToSymbol(plane_wave_c, plane_wave, sizeof(plane_wave_t)));
-    cutilSafeCall(cudaMemcpyToSymbol(mix_params_c, mix_params, sizeof(mix_params_t)));
-    cutilSafeCall(cudaMemcpyToSymbol(PML_c, PML, sizeof(PML_t)));
+    cudaMemcpyToSymbol(Pi,           &Pi_h,       sizeof(double));
+    cudaMemcpyToSymbol(Pi4r3,        &Pi4r3_h,    sizeof(double));
+    cudaMemcpyToSymbol(delta_coef,   &tmp,        sizeof(double3));
+    cudaMemcpyToSymbol(array_c,      array_index, sizeof(array_index_t));
+    cudaMemcpyToSymbol(grid_c,       grid_size,   sizeof(grid_t));
+    cudaMemcpyToSymbol(sim_params_c, sim_params,  sizeof(sim_params_t));
+    cudaMemcpyToSymbol(plane_wave_c, plane_wave,  sizeof(plane_wave_t));
+    cudaMemcpyToSymbol(mix_params_c, mix_params,  sizeof(mix_params_t));
+    cudaMemcpyToSymbol(PML_c,        PML,         sizeof(PML_t));
 
     if (bub_params->enabled)
     {
-        cutilSafeCall(cudaMemcpyToSymbol(bubbles_c,	&bubbles_htod,	sizeof(bubble_t)));
-        cutilSafeCall(cudaMemcpyToSymbol(bub_params_c, bub_params, sizeof(bub_params_t)));
-        cutilSafeCall(cudaMemcpyToSymbol(num_bubbles, &numBubbles, sizeof(int)));
+        cudaMemcpyToSymbol(bubbles_c,	&bubbles_htod,	sizeof(bubble_t));
+        cudaMemcpyToSymbol(bub_params_c, bub_params, sizeof(bub_params_t));
+        cudaMemcpyToSymbol(num_bubbles, &numBubbles, sizeof(int));
     }
 
 
@@ -1428,24 +1497,24 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 
     // Determine the required CUDA parameters
 
-    T_width		= T_pitch 	/ sizeof(double);
-    P_width		= P_pitch	/ sizeof(double);
-    p0_width	= p0_pitch 	/ sizeof(double);
-    p_width		= p_pitch	/ sizeof(double2);
-    pn_width	= pn_pitch	/ sizeof(double2);
-    vx_width	= vx_pitch	/ sizeof(double);
-    vy_width	= vy_pitch	/ sizeof(double);
-    c_sl_width	= c_sl_pitch	/ sizeof(double);
-    rho_m_width	= rho_m_pitch	/ sizeof(double);
-    rho_l_width	= rho_l_pitch	/ sizeof(double);
-    f_g_width	= f_g_pitch	/ sizeof(double);
-    f_gn_width	= f_gn_pitch	/ sizeof(double);
-    f_gm_width	= f_gm_pitch	/ sizeof(double);
-    k_m_width	= k_m_pitch	/ sizeof(double);
-    C_pm_width	= C_pm_pitch	/ sizeof(double);
-    Work_width	= Work_pitch	/ sizeof(double);
-    Ex_width	= Ex_pitch	/ sizeof(double);
-    Ey_width	= Ey_pitch	/ sizeof(double);
+    widths.T     = pitches.T     / sizeof(double);
+    widths.P     = pitches.P     / sizeof(double);
+    widths.p0    = pitches.p0    / sizeof(double);
+    widths.p     = pitches.p     / sizeof(double2);
+    widths.pn    = pitches.pn    / sizeof(double2);
+    widths.vx    = pitches.vx    / sizeof(double);
+    widths.vy    = pitches.vy    / sizeof(double);
+    widths.c_sl  = pitches.c_sl  / sizeof(double);
+    widths.rho_m = pitches.rho_m / sizeof(double);
+    widths.rho_l = pitches.rho_l / sizeof(double);
+    widths.f_g   = pitches.f_g   / sizeof(double);
+    widths.f_gn  = pitches.f_gn  / sizeof(double);
+    widths.f_gm  = pitches.f_gm  / sizeof(double);
+    widths.k_m   = pitches.k_m   / sizeof(double);
+    widths.C_pm  = pitches.C_pm  / sizeof(double);
+    widths.Work  = pitches.Work  / sizeof(double);
+    widths.Ex    = pitches.Ex    / sizeof(double);
+    widths.Ey    = pitches.Ey    / sizeof(double);
 
     return 0;
 }
@@ -1453,100 +1522,100 @@ int initialize_CUDA_variables(	grid_t		*grid_size,
 // Free all CUDA variables
 int destroy_CUDA_variables(bub_params_t *bub_params)
 {
-    cutilSafeCall(cudaFree(mixture_htod.T));
-    cutilSafeCall(cudaFree(mixture_htod.vx));
-    cutilSafeCall(cudaFree(mixture_htod.vy));
-    cutilSafeCall(cudaFree(mixture_htod.c_sl));
-    cutilSafeCall(cudaFree(mixture_htod.rho_m));
-    cutilSafeCall(cudaFree(mixture_htod.rho_l));
-    cutilSafeCall(cudaFree(mixture_htod.f_g));
-    cutilSafeCall(cudaFree(mixture_htod.f_gn));
-    cutilSafeCall(cudaFree(mixture_htod.f_gm));
-    cutilSafeCall(cudaFree(mixture_htod.k_m));
-    cutilSafeCall(cudaFree(mixture_htod.C_pm));
-    cutilSafeCall(cudaFree(mixture_htod.Work));
-    cutilSafeCall(cudaFree(mixture_htod.Ex));
-    cutilSafeCall(cudaFree(mixture_htod.Ey));
-    cutilSafeCall(cudaFree(mixture_htod.p0));
-    cutilSafeCall(cudaFree(mixture_htod.p));
-    cutilSafeCall(cudaFree(mixture_htod.pn));
+    cudaFree(mixture_htod.T);
+    cudaFree(mixture_htod.vx);
+    cudaFree(mixture_htod.vy);
+    cudaFree(mixture_htod.c_sl);
+    cudaFree(mixture_htod.rho_m);
+    cudaFree(mixture_htod.rho_l);
+    cudaFree(mixture_htod.f_g);
+    cudaFree(mixture_htod.f_gn);
+    cudaFree(mixture_htod.f_gm);
+    cudaFree(mixture_htod.k_m);
+    cudaFree(mixture_htod.C_pm);
+    cudaFree(mixture_htod.Work);
+    cudaFree(mixture_htod.Ex);
+    cudaFree(mixture_htod.Ey);
+    cudaFree(mixture_htod.p0);
+    cudaFree(mixture_htod.p);
+    cudaFree(mixture_htod.pn);
 
-    cutilSafeCall(cudaFreeHost(mixture_h.T));
-    cutilSafeCall(cudaFreeHost(mixture_h.vx));
-    cutilSafeCall(cudaFreeHost(mixture_h.vy));
-    cutilSafeCall(cudaFreeHost(mixture_h.c_sl));
-    cutilSafeCall(cudaFreeHost(mixture_h.rho_m));
-    cutilSafeCall(cudaFreeHost(mixture_h.rho_l));
-    cutilSafeCall(cudaFreeHost(mixture_h.f_g));
-    cutilSafeCall(cudaFreeHost(mixture_h.f_gn));
-    cutilSafeCall(cudaFreeHost(mixture_h.f_gm));
-    cutilSafeCall(cudaFreeHost(mixture_h.k_m));
-    cutilSafeCall(cudaFreeHost(mixture_h.C_pm));
-    cutilSafeCall(cudaFreeHost(mixture_h.Work));
-    cutilSafeCall(cudaFreeHost(mixture_h.Ex));
-    cutilSafeCall(cudaFreeHost(mixture_h.Ey));
-    cutilSafeCall(cudaFreeHost(mixture_h.p0));
-    cutilSafeCall(cudaFreeHost(mixture_h.p));
-    cutilSafeCall(cudaFreeHost(mixture_h.pn));
+    cudaFreeHost(mixture_h.T);
+    cudaFreeHost(mixture_h.vx);
+    cudaFreeHost(mixture_h.vy);
+    cudaFreeHost(mixture_h.c_sl);
+    cudaFreeHost(mixture_h.rho_m);
+    cudaFreeHost(mixture_h.rho_l);
+    cudaFreeHost(mixture_h.f_g);
+    cudaFreeHost(mixture_h.f_gn);
+    cudaFreeHost(mixture_h.f_gm);
+    cudaFreeHost(mixture_h.k_m);
+    cudaFreeHost(mixture_h.C_pm);
+    cudaFreeHost(mixture_h.Work);
+    cudaFreeHost(mixture_h.Ex);
+    cudaFreeHost(mixture_h.Ey);
+    cudaFreeHost(mixture_h.p0);
+    cudaFreeHost(mixture_h.p);
+    cudaFreeHost(mixture_h.pn);
 
     if (bub_params->enabled)
     {
-        cutilSafeCall(cudaFree(bubbles_htod.ibm));
-        cutilSafeCall(cudaFree(bubbles_htod.ibn));
-        cutilSafeCall(cudaFree(bubbles_htod.pos));
-        cutilSafeCall(cudaFree(bubbles_htod.R_t));
-        cutilSafeCall(cudaFree(bubbles_htod.R_p));
-        cutilSafeCall(cudaFree(bubbles_htod.R_pn));
-        cutilSafeCall(cudaFree(bubbles_htod.R_n));
-        cutilSafeCall(cudaFree(bubbles_htod.R_nn));
-        cutilSafeCall(cudaFree(bubbles_htod.d1_R_p));
-        cutilSafeCall(cudaFree(bubbles_htod.d1_R_n));
-        cutilSafeCall(cudaFree(bubbles_htod.PG_p));
-        cutilSafeCall(cudaFree(bubbles_htod.PG_n));
-        cutilSafeCall(cudaFree(bubbles_htod.PL_p));
-        cutilSafeCall(cudaFree(bubbles_htod.PL_n));
-        cutilSafeCall(cudaFree(bubbles_htod.PL_m));
-        cutilSafeCall(cudaFree(bubbles_htod.Q_B));
-        cutilSafeCall(cudaFree(bubbles_htod.n_B));
-        cutilSafeCall(cudaFree(bubbles_htod.dt));
-        cutilSafeCall(cudaFree(bubbles_htod.dt_n));
-        cutilSafeCall(cudaFree(bubbles_htod.re));
-        cutilSafeCall(cudaFree(bubbles_htod.re_n));
-        cutilSafeCall(cudaFree(bubbles_htod.v_B));
-        cutilSafeCall(cudaFree(bubbles_htod.v_L));
+        cudaFree(bubbles_htod.ibm);
+        cudaFree(bubbles_htod.ibn);
+        cudaFree(bubbles_htod.pos);
+        cudaFree(bubbles_htod.R_t);
+        cudaFree(bubbles_htod.R_p);
+        cudaFree(bubbles_htod.R_pn);
+        cudaFree(bubbles_htod.R_n);
+        cudaFree(bubbles_htod.R_nn);
+        cudaFree(bubbles_htod.d1_R_p);
+        cudaFree(bubbles_htod.d1_R_n);
+        cudaFree(bubbles_htod.PG_p);
+        cudaFree(bubbles_htod.PG_n);
+        cudaFree(bubbles_htod.PL_p);
+        cudaFree(bubbles_htod.PL_n);
+        cudaFree(bubbles_htod.PL_m);
+        cudaFree(bubbles_htod.Q_B);
+        cudaFree(bubbles_htod.n_B);
+        cudaFree(bubbles_htod.dt);
+        cudaFree(bubbles_htod.dt_n);
+        cudaFree(bubbles_htod.re);
+        cudaFree(bubbles_htod.re_n);
+        cudaFree(bubbles_htod.v_B);
+        cudaFree(bubbles_htod.v_L);
 
-        cutilSafeCall(cudaFreeHost(bubbles_h.ibm));
-        cutilSafeCall(cudaFreeHost(bubbles_h.ibn));
-        cutilSafeCall(cudaFreeHost(bubbles_h.pos));
-        cutilSafeCall(cudaFreeHost(bubbles_h.R_t));
-        cutilSafeCall(cudaFreeHost(bubbles_h.R_p));
-        cutilSafeCall(cudaFreeHost(bubbles_h.R_pn));
-        cutilSafeCall(cudaFreeHost(bubbles_h.R_n));
-        cutilSafeCall(cudaFreeHost(bubbles_h.R_nn));
-        cutilSafeCall(cudaFreeHost(bubbles_h.d1_R_p));
-        cutilSafeCall(cudaFreeHost(bubbles_h.d1_R_n));
-        cutilSafeCall(cudaFreeHost(bubbles_h.PG_p));
-        cutilSafeCall(cudaFreeHost(bubbles_h.PG_n));
-        cutilSafeCall(cudaFreeHost(bubbles_h.PL_p));
-        cutilSafeCall(cudaFreeHost(bubbles_h.PL_n));
-        cutilSafeCall(cudaFreeHost(bubbles_h.PL_m));
-        cutilSafeCall(cudaFreeHost(bubbles_h.Q_B));
-        cutilSafeCall(cudaFreeHost(bubbles_h.n_B));
-        cutilSafeCall(cudaFreeHost(bubbles_h.dt));
-        cutilSafeCall(cudaFreeHost(bubbles_h.dt_n));
-        cutilSafeCall(cudaFreeHost(bubbles_h.re));
-        cutilSafeCall(cudaFreeHost(bubbles_h.re_n));
-        cutilSafeCall(cudaFreeHost(bubbles_h.v_B));
-        cutilSafeCall(cudaFreeHost(bubbles_h.v_L));
+        cudaFreeHost(bubbles_h.ibm);
+        cudaFreeHost(bubbles_h.ibn);
+        cudaFreeHost(bubbles_h.pos);
+        cudaFreeHost(bubbles_h.R_t);
+        cudaFreeHost(bubbles_h.R_p);
+        cudaFreeHost(bubbles_h.R_pn);
+        cudaFreeHost(bubbles_h.R_n);
+        cudaFreeHost(bubbles_h.R_nn);
+        cudaFreeHost(bubbles_h.d1_R_p);
+        cudaFreeHost(bubbles_h.d1_R_n);
+        cudaFreeHost(bubbles_h.PG_p);
+        cudaFreeHost(bubbles_h.PG_n);
+        cudaFreeHost(bubbles_h.PL_p);
+        cudaFreeHost(bubbles_h.PL_n);
+        cudaFreeHost(bubbles_h.PL_m);
+        cudaFreeHost(bubbles_h.Q_B);
+        cudaFreeHost(bubbles_h.n_B);
+        cudaFreeHost(bubbles_h.dt);
+        cudaFreeHost(bubbles_h.dt_n);
+        cudaFreeHost(bubbles_h.re);
+        cudaFreeHost(bubbles_h.re_n);
+        cudaFreeHost(bubbles_h.v_B);
+        cudaFreeHost(bubbles_h.v_L);
     }
 
-    cutilSafeCall(cudaFree(sigma_htod.mx));
-    cutilSafeCall(cudaFree(sigma_htod.my));
-    cutilSafeCall(cudaFree(sigma_htod.nx));
-    cutilSafeCall(cudaFree(sigma_htod.ny));
+    cudaFree(sigma_htod.mx);
+    cudaFree(sigma_htod.my);
+    cudaFree(sigma_htod.nx);
+    cudaFree(sigma_htod.ny);
 
-    cutilSafeCall(cudaFree(grid_htod.xu));
-    cutilSafeCall(cudaFree(grid_htod.rxp));
+    cudaFree(grid_htod.xu);
+    cudaFree(grid_htod.rxp);
 
 
     checkCUDAError("Memory Allocation");
