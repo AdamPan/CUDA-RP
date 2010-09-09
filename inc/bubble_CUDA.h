@@ -14,17 +14,9 @@
 
 #include <cuda_runtime.h>
 #include <cutil_inline.h>
-//#include <GL/glew.h>
-//#include <GL/glut.h>
-//#include <cuda_gl_interop.h>
-//#include <cutil_gl_inline.h>
-//#include <cutil_gl_error.h>
-//#include <rendercheck_gl.h>
-
 
 #include <cutil_math.h>
 #include <cutil.h>
-//#include <cudpp.h>
 
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
@@ -42,16 +34,11 @@
 
 #include "output_styles.h"
 
-#define TRUE 1
-#define FALSE 0
 
 //#define _DEBUG_
 #define _OUTPUT_
 
-#define EPSILON 0.01
-
-#define DIMENSION 2
-
+// Set universal kernel blocksizes
 #define TILE_BLOCK_WIDTH	16
 #define TILE_BLOCK_HEIGHT	16
 #define LINEAR_BLOCK_SIZE	256
@@ -111,13 +98,13 @@ struct __align__(16) PML_t
     double	sigma;		// sigma used for PML layer
 };
 
-struct __align__(16) plane_wave_t
+struct __align__(16) transducer_t
 {
     double	amp;		// Wave amplitude
     double	freq;		// Frequency
     double	f_dist;		// Focal distance
-    bool	pid;
-    int		pid_start_step;
+    bool	pid;        // PID flag
+    int		pid_start_step; // PID start time
     double	init_control;	// Initial focus used by pid control system
     double	box_size;	// Size of the "box"
     bool	cylindrical;	// Flag for cylindrical condition
@@ -229,7 +216,7 @@ struct output_plan_t
     array_index_t *array_index;
     grid_t *grid_size;
     sim_params_t *sim_params;
-    plane_wave_t *plane_wave;
+    transducer_t *transducer;
     debug_t *debug;
 };
 
@@ -245,16 +232,16 @@ struct array_widths_t
 
 void display(double data[], int xdim, int ydim, int num_lines, char **msg);
 
-thrust::tuple<bool,double2, double2, double2> solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, plane_wave_t *plane_wave, debug_t *debug, int save_function, thrust::tuple<bool,double2,double2,double2> pid_init);
+thrust::tuple<bool,double2, double2, double2> solve_bubbles(array_index_t *array_index, grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, bub_params_t *bub_params, transducer_t *transducer, debug_t *debug, int save_function, thrust::tuple<bool,double2,double2,double2> pid_init);
 
-int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
+int initialize_variables (grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, transducer_t *transducer, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 
-int initialize_CUDA_variables(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, plane_wave_t *plane_wave, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
+int initialize_CUDA_variables(grid_t *grid_size, PML_t *PML, sim_params_t *sim_params, transducer_t *transducer, array_index_t *array_index, mix_params_t *mix_params, bub_params_t *bub_params);
 int destroy_CUDA_variables(bub_params_t *bub_params);
 
 grid_t init_grid_size(grid_t grid_size);
 
-plane_wave_t init_plane_wave(plane_wave_t plane_wave, grid_t grid_size);
+transducer_t init_transducer(transducer_t transducer, grid_t grid_size);
 
 array_index_t init_array (const grid_t grid_size, const sim_params_t sim_params);
 
@@ -268,8 +255,8 @@ mix_params_t init_mix();
 double mix_set_time_increment(sim_params_t sim_params, double dx_min, double u_max);
 mixture_t init_mix_array(mix_params_t *mix_params, array_index_t array_index);
 
-bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, array_index_t *array_index, grid_t *grid_size, plane_wave_t *plane_wave);
-bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size, plane_wave_t plane_wave);
+bubble_t init_bub_array(bub_params_t *bub_params, mix_params_t *mix_params, array_index_t *array_index, grid_t *grid_size, transducer_t *transducer);
+bubble_t_aos bubble_input(double2 pos, double fg_in, bub_params_t bub_params, grid_t grid_size, transducer_t transducer);
 
 void setCUDAflags();
 void checkCUDAError(const char* msg);

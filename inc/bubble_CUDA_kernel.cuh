@@ -29,7 +29,7 @@ __device__ __constant__ PML_t         PML_c;        // PML
 __device__ __constant__ sim_params_t  sim_params_c; // Simulation parameters
 __device__ __constant__ mix_params_t  mix_params_c; // Mixture
 __device__ __constant__ bub_params_t  bub_params_c; // Bubble
-__device__ __constant__ plane_wave_t  plane_wave_c; // Plane Wave
+__device__ __constant__ transducer_t  transducer_c; // Plane Wave
 __device__ __constant__ double        tstep_c;      // Current time
 __device__ __constant__ double3       delta_coef;   // Coefficients used to save ops in
 // calculating the smooth delta function
@@ -593,7 +593,7 @@ __global__ void VoidFractionReverseLookupKernel(int fg_width)
         R_t = bubbles_c.R_t[index];
 
         // Determine void fraction due to the bubble
-        if (plane_wave_c.cylindrical)
+        if (transducer_c.cylindrical)
         {
             fg_temp =  Pi4r3 * n_B * (R_t * R_t * R_t) * grid_c.rdx * grid_c.rdy / pos.x;
         }
@@ -735,7 +735,7 @@ __global__ void VelocityBoundaryKernel(int vx_width, int vy_width)
     {
         if (PML_c.Y0 == 0)
         {
-            if ((plane_wave_c.Plane_P == 0) && (plane_wave_c.Focused_P == 0))
+            if ((transducer_c.Plane_P == 0) && (transducer_c.Focused_P == 0))
             {
                 mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = 0.0;
             }
@@ -746,21 +746,21 @@ __global__ void VelocityBoundaryKernel(int vx_width, int vy_width)
                 mixture_c.vy[vy_width*(j - array_c.jsta2n) + index] = vy;
             }
 
-            if (plane_wave_c.Plane_V == 1)
+            if (transducer_c.Plane_V == 1)
             {
-                if ((fmod(tstep_c, (((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq))
+                if ((fmod(tstep_c, (((double)transducer_c.on_wave + (double)transducer_c.off_wave)/transducer_c.freq))
                         <=
-                        ((double) plane_wave_c.on_wave)/plane_wave_c.freq))
+                        ((double) transducer_c.on_wave)/transducer_c.freq))
                 {
                     mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index]
-                    = plane_wave_c.amp * sin(plane_wave_c.omega * tstep_c);
+                    = transducer_c.amp * sin(transducer_c.omega * tstep_c);
                 }
                 else
                 {
                     mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = 0.0;
                 }
             }
-            if (plane_wave_c.Focused_V == 1)
+            if (transducer_c.Focused_V == 1)
             {
                 ym = 0.0;
                 xm = ((double)i2m - 0.5) * grid_c.dx;
@@ -769,10 +769,10 @@ __global__ void VelocityBoundaryKernel(int vx_width, int vy_width)
                 if (s1 <= focal_dist_c)
                 {
                     s1 = max(tstep_c - (focal_dist_c - s1) / mix_params_c.cs_inf, 0.0);
-                    s2 = (fmod(s1,((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq));
-                    if (s2 < ((double)plane_wave_c.on_wave/plane_wave_c.freq))
+                    s2 = (fmod(s1,((double)transducer_c.on_wave + (double)transducer_c.off_wave)/transducer_c.freq));
+                    if (s2 < ((double)transducer_c.on_wave/transducer_c.freq))
                     {
-                        mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = plane_wave_c.amp * sin(plane_wave_c.omega * s2);
+                        mixture_c.vy[vy_width*(0 - array_c.jsta2n) + index] = transducer_c.amp * sin(transducer_c.omega * s2);
                     }
                     else
                     {
@@ -838,7 +838,7 @@ __global__ void MixturePressureKernel(int vx_width, int vy_width, int fg_width, 
     if (ok)
     {
         // Determine the velocity gradient in x (depends on whether the cylindrical condition is active or not)
-        if (plane_wave_c.cylindrical)
+        if (transducer_c.cylindrical)
         {
             s1.x = (-gridgen_c.xu[xu_i - 1] * mixture_c.vx[vx_i - 1] + gridgen_c.xu[xu_i] * mixture_c.vx[vx_i]) * grid_c.rdx * gridgen_c.rxp[i1m - array_c.ista2m];
         }
@@ -874,7 +874,7 @@ __global__ void MixtureBoundaryPressureKernel(int p0_width)
     const int i1m = index + array_c.ista1m;
     const int j1m = index + array_c.jsta1m;
 
-    const double pamp = mix_params_c.rho_inf * mix_params_c.cs_inf * plane_wave_c.amp;
+    const double pamp = mix_params_c.rho_inf * mix_params_c.cs_inf * transducer_c.amp;
 
     double s1, s2;
 
@@ -886,21 +886,21 @@ __global__ void MixtureBoundaryPressureKernel(int p0_width)
             {
                 mixture_c.p0[p0_width * (j - array_c.jsta1m) + index] = mixture_c.p0[p0_width * (1 - j - array_c.jsta1m) + index];
             }
-            if (plane_wave_c.Plane_P == 1)
+            if (transducer_c.Plane_P == 1)
             {
 
-                if (fmod(tstep_c, ((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq)
+                if (fmod(tstep_c, ((double)transducer_c.on_wave + (double)transducer_c.off_wave)/transducer_c.freq)
                         <=
-                        ((double)plane_wave_c.on_wave)/plane_wave_c.freq)
+                        ((double)transducer_c.on_wave)/transducer_c.freq)
                 {
-                    mixture_c.p0[p0_width * (0 - array_c.jsta1m) + index] = pamp * sin(plane_wave_c.omega * tstep_c);
+                    mixture_c.p0[p0_width * (0 - array_c.jsta1m) + index] = pamp * sin(transducer_c.omega * tstep_c);
                 }
                 else
                 {
                     mixture_c.p0[p0_width * (0 - array_c.jsta1m) + index] = 0.0;
                 }
             }
-            if (plane_wave_c.Focused_P == 1)
+            if (transducer_c.Focused_P == 1)
             {
                 double ym = -0.5 * grid_c.dy;
                 double xm = (i1m - 0.5) * grid_c.dx;
@@ -908,10 +908,10 @@ __global__ void MixtureBoundaryPressureKernel(int p0_width)
                 if (s1 <= focal_dist_c)
                 {
                     s1 = max(tstep_c - (focal_dist_c - s1)/mix_params_c.cs_inf, 0.0);
-                    s2 = fmod(s1, ((double)plane_wave_c.on_wave + (double)plane_wave_c.off_wave)/plane_wave_c.freq);
-                    if (s2 < (double)plane_wave_c.on_wave/plane_wave_c.freq)
+                    s2 = fmod(s1, ((double)transducer_c.on_wave + (double)transducer_c.off_wave)/transducer_c.freq);
+                    if (s2 < (double)transducer_c.on_wave/transducer_c.freq)
                     {
-                        mixture_c.p0[p0_width * (0 - array_c.jsta1m) + index] = pamp * sin(plane_wave_c.omega * s2);
+                        mixture_c.p0[p0_width * (0 - array_c.jsta1m) + index] = pamp * sin(transducer_c.omega * s2);
                     }
                     else
                     {
@@ -980,7 +980,7 @@ __global__ void BubbleHeatKernel(int Work_width)
         double	n_B = bubbles_c.n_B[index];
         double	Q_B = bubbles_c.Q_B[index];
 
-        if (plane_wave_c.cylindrical)
+        if (transducer_c.cylindrical)
         {
             Q_temp = n_B * Q_B * grid_c.rdx * grid_c.rdy / pos.x;
         }
@@ -1052,7 +1052,7 @@ __global__ void MixtureTemperatureKernel(int T_width, int Ex_width, int Ey_width
     if (ok)
     {
         double s0 = (mixture_c.p[p_i].x + mixture_c.p[p_i].y - mixture_c.pn[p_i].x - mixture_c.pn[p_i].y) / mix_params_c.dt;
-        s0 = 2.0 * (0.22) * 0.115129255 / ( mix_params_c.rho_inf * mix_params_c.cs_inf * plane_wave_c.omega * plane_wave_c.omega) * s0*s0;
+        s0 = 2.0 * (0.22) * 0.115129255 / ( mix_params_c.rho_inf * mix_params_c.cs_inf * transducer_c.omega * transducer_c.omega) * s0*s0;
         double Q = mixture_c.Work[(jm - array_c.jsta2m) * Work_width + im - array_c.ista2m] + s0;
 
         double s1 = (mixture_c.Ex[Ex_i] - mixture_c.Ex[Ex_i - 1]) * grid_c.rdx;
@@ -1124,37 +1124,10 @@ __global__ void MixturePropertiesKernel(int rhol_width, int rhom_width, int csl_
     }
 }
 
-// Generates a delta function mask around the target focal point
-
-//__global__ void AreaMaskInitKernel(double *area_sum_mask, int area_sum_mask_width)
-//{
-//	const int i = blockIdx.x * blockDim.x + threadIdx.x;
-//	const int j = blockIdx.y * blockDim.y + threadIdx.y;
-//
-//	const int i2m = i + array_c.ista2m;
-//	const int j2m = j + array_c.jsta2m;
-//
-//	if ((i2m <= array_c.iend2m) && (j2m <= array_c.jend2m)){
-//		area_sum_mask[area_sum_mask_width * j + i] =
-//	}
-//}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //	Wrapper Functions
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-//int area_sum_mask_init(double *area_sum_mask, int area_sum_mask_width)
-//{
-//	dim3 dim2mBlock(TILE_BLOCK_WIDTH, TILE_BLOCK_HEIGHT);
-//	dim3 dim2mGrid((i2m + TILE_BLOCK_WIDTH - 1) / TILE_BLOCK_WIDTH,
-//                   (j2m + TILE_BLOCK_HEIGHT - 1) / TILE_BLOCK_HEIGHT);
-
-//	AreaMaskInitKernel <<< dim2mGrid, dim2mBlock, 0, stream[0] >>> (area_sum_mask, area_sum_mask_width);
-//
-//	cudaStreamSynchronize(stream[0]);
-//	checkCUDAError("Failed to initialize Area Mask");
-//	return 0;
-//}
 
 double2 determine_focal_point(double *data, int data_width, int data_packed_width, int data_height, double dx, double dy)
 {
@@ -1201,10 +1174,12 @@ double2 focal_PID(double2 target, double2 actual, double2 prev, double2 *d_err, 
     double2 err = (target - actual);
     *err_total = *err_total + err;
     *d_err		= prev - actual;
-    //printf("target (%+4.2E, %+4.2E) actual (%+4.2E, %+4.2E)", target.x, target.y, actual.x, actual.y);
-    //printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
-    //printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
-    //printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);
+#ifdef _DEBUG_
+    printf("target (%+4.2E, %+4.2E) actual (%+4.2E, %+4.2E)", target.x, target.y, actual.x, actual.y);
+    printf(" err (%+4.2E, %+4.2E) ", err.x, err.y);
+    printf(" delta (%+4.2E, %+4.2E) ", d_err->x, d_err->y);
+    printf(" errtotal (%+4.2E, %+4.2E) ", err_total->x, err_total->y);
+#endif
     return target + (K * err + D * (*d_err) + I * (*err_total));
 }
 
@@ -1220,7 +1195,7 @@ int update_bubble_indices(cudaStream_t stream[], cudaEvent_t stop[])
     return 0;
 }
 
-int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, pitch_sizes_t pitches, array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
+int calculate_void_fraction(mixture_t mixture_htod, transducer_t *transducer, pitch_sizes_t pitches, array_widths_t widths, cudaStream_t stream[], cudaEvent_t stop[])
 {
     dim3 dimVFCBlock(LINEAR_BLOCK_SIZE);
     dim3 dimVFCGrid((max(i2m, j2m) + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE);
@@ -1232,7 +1207,7 @@ int calculate_void_fraction(mixture_t mixture_htod, plane_wave_t *plane_wave, pi
     cudaThreadSynchronize();
 
     VoidFractionReverseLookupKernel <<< dimBubbleGrid, dimBubbleBlock, 0, stream[0] >>> (widths.f_g);
-    if (plane_wave->cylindrical)
+    if (transducer->cylindrical)
     {
         VoidFractionCylinderKernel <<< dimVFCGrid, dimVFCBlock, 0, stream[0] >>> (widths.f_g);
     }

@@ -50,3 +50,9 @@ Author: Adam Pan
     The program is threadsafe, and does not interfere with the operation of
     CPU bound applications. In addition, multiple instances of the program
     may be launched on the same graphics card, although this is not recommended.
+    
+    Boost Program Options Documentation: http://www.boost.org/doc/libs/1_40_0/doc/html/program_options.html
+    
+TODO
+    Multiple configuration files in one run.
+    Sweeping variable ranges.

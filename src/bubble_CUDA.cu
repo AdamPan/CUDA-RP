@@ -59,7 +59,7 @@ solve_bubbles(array_index_t *array_index,
               PML_t         *PML,
               sim_params_t  *sim_params,
               bub_params_t  *bub_params,
-              plane_wave_t  *plane_wave,
+              transducer_t  *transducer,
               debug_t       *debug,
               int            save_function,
               thrust::tuple<bool, double2,double2,double2> pid_init)
@@ -114,7 +114,7 @@ solve_bubbles(array_index_t *array_index,
     initialize_variables(grid_size,
                          PML,
                          sim_params,
-                         plane_wave,
+                         transducer,
                          array_index,
                          mix_params,
                          bub_params);
@@ -129,7 +129,7 @@ solve_bubbles(array_index_t *array_index,
     double2 pid_cumulative_err = make_double2(0.0,0.0);
     double2 pid_derivative_err = make_double2(0.0,0.0);
 
-    if (plane_wave->pid)
+    if (transducer->pid)
     {
         if (thrust::get<0>(pid_init))
         {
@@ -137,18 +137,18 @@ solve_bubbles(array_index_t *array_index,
             pid_cumulative_err = get<2>(pid_init);
             pid_derivative_err = get<3>(pid_init);
         }
-        else if (plane_wave->init_control)
+        else if (transducer->init_control)
         {
-            control.push_back(make_double2(0.0,plane_wave->init_control));
+            control.push_back(make_double2(0.0,transducer->init_control));
         }
         else
         {
-            control.push_back(plane_wave->fp);
+            control.push_back(transducer->fp);
         }
     }
     else
     {
-        control.push_back(plane_wave->fp);
+        control.push_back(transducer->fp);
     }
     double control_dist = control[control.size()-1].y / 0.5 / sqrt(3.0);
     printf("\tdone\n");
@@ -163,7 +163,7 @@ solve_bubbles(array_index_t *array_index,
     initialize_CUDA_variables(grid_size,
                               PML,
                               sim_params,
-                              plane_wave,
+                              transducer,
                               array_index,
                               mix_params,
                               bub_params);
@@ -179,7 +179,7 @@ solve_bubbles(array_index_t *array_index,
     // Calculate the initial state void fraction
     if (bub_params->enabled)
     {
-        calculate_void_fraction(mixture_htod, plane_wave,
+        calculate_void_fraction(mixture_htod, transducer,
                                 pitches, widths,
                                 stream, stop);
     }
@@ -193,7 +193,7 @@ solve_bubbles(array_index_t *array_index,
     plan->array_index = array_index;
     plan->grid_size = grid_size;
     plan->sim_params = sim_params;
-    plan->plane_wave = plane_wave;
+    plan->transducer = transducer;
     plan->debug = debug;
 
     /************************
@@ -253,7 +253,7 @@ solve_bubbles(array_index_t *array_index,
 
                 // Calculate Void Fraction
                 calculate_void_fraction(mixture_htod,
-                                        plane_wave,
+                                        transducer,
                                         pitches, widths,
                                         stream, stop);
 
@@ -324,12 +324,12 @@ solve_bubbles(array_index_t *array_index,
                focalpoint[focalpoint.size()-1].x,
                focalpoint[focalpoint.size()-1].y);
 
-        if (plane_wave->pid)
+        if (transducer->pid)
         {
-            if (nstep > plane_wave->pid_start_step)
+            if (nstep > transducer->pid_start_step)
             {
                 control.push_back(
-                    focal_PID(plane_wave->fp,
+                    focal_PID(transducer->fp,
                               focalpoint[focalpoint.size()-1],
                               focalpoint[focalpoint.size()-2],
                               &pid_derivative_err,
@@ -340,7 +340,7 @@ solve_bubbles(array_index_t *array_index,
                                                 0.0,
                                                 clamp<double>(
                                                     control[control.size()-1].y,
-                                                    plane_wave->fp.y,
+                                                    transducer->fp.y,
                                                     grid_size->LY
                                                 )
                                             );
@@ -479,7 +479,7 @@ solve_bubbles(array_index_t *array_index,
 int initialize_variables(grid_t        *grid_size,
                          PML_t         *PML,
                          sim_params_t  *sim_params,
-                         plane_wave_t  *plane_wave,
+                         transducer_t  *transducer,
                          array_index_t *array_index,
                          mix_params_t  *mix_params,
                          bub_params_t  *bub_params)
@@ -487,7 +487,7 @@ int initialize_variables(grid_t        *grid_size,
     *grid_size = init_grid_size(*grid_size);
 
     // Plane Wave
-    *plane_wave = init_plane_wave(*plane_wave, *grid_size);
+    *transducer = init_transducer(*transducer, *grid_size);
 
     // Array index
     *array_index = init_array(*grid_size, *sim_params);
@@ -514,7 +514,7 @@ int initialize_variables(grid_t        *grid_size,
                                    mix_params,
                                    array_index,
                                    grid_size,
-                                   plane_wave);
+                                   transducer);
     }
 
     return 0;
@@ -540,21 +540,21 @@ grid_t init_grid_size(grid_t grid_size)
 }
 
 // Initialize plane wave coefficients
-plane_wave_t init_plane_wave(plane_wave_t plane_wave,
+transducer_t init_transducer(transducer_t transducer,
                              grid_t grid_size)
 {
-    if (plane_wave.f_dist)
+    if (transducer.f_dist)
     {
-        plane_wave.fp.x = 0.0;
-        plane_wave.fp.y = plane_wave.f_dist * 0.5 * sqrt(3.0);
+        transducer.fp.x = 0.0;
+        transducer.fp.y = transducer.f_dist * 0.5 * sqrt(3.0);
     }
     else
     {
-        plane_wave.fp.x = 0.0;
-        plane_wave.fp.y = grid_size.LY * 0.5;
+        transducer.fp.x = 0.0;
+        transducer.fp.y = grid_size.LY * 0.5;
     }
-    plane_wave.omega = 2.0 * acos(-1.0) * plane_wave.freq;
-    return plane_wave;
+    transducer.omega = 2.0 * acos(-1.0) * transducer.freq;
+    return transducer;
 }
 
 // Initializes the array index
@@ -798,7 +798,7 @@ bubble_t init_bub_array(bub_params_t *bub_params,
                         mix_params_t *mix_params,
                         array_index_t *array_index,
                         grid_t *grid_size,
-                        plane_wave_t *plane_wave)
+                        transducer_t *transducer)
 {
     double2 pos = make_double2(0.0, 0.0);
     host_vector<bubble_t_aos> bub;
@@ -815,24 +815,24 @@ bubble_t init_bub_array(bub_params_t *bub_params,
         {
             pos.y = ( (double)j - 0.5) * grid_size->dy;
 
-            if (plane_wave->box_size
-                    && (abs(pos.x - plane_wave->fp.x) < 0.5 * plane_wave->box_size)
-                    && (abs(pos.y - plane_wave->fp.y) < 0.5 * plane_wave->box_size))
+            if (transducer->box_size
+                    && (abs(pos.x - transducer->fp.x) < 0.5 * transducer->box_size)
+                    && (abs(pos.y - transducer->fp.y) < 0.5 * transducer->box_size))
             {
                 init_bubble = bubble_input(pos,
                                            bub_params->fg0,
                                            *bub_params,
                                            *grid_size,
-                                           *plane_wave);
+                                           *transducer);
                 bub.push_back(init_bubble);
             }
-            else if (!(plane_wave->box_size))
+            else if (!(transducer->box_size))
             {
                 init_bubble = bubble_input(pos,
                                            bub_params->fg0,
                                            *bub_params,
                                            *grid_size,
-                                           *plane_wave);
+                                           *transducer);
                 bub.push_back(init_bubble);
             }
         }
@@ -901,7 +901,7 @@ bubble_t_aos bubble_input(double2 pos,
                           double fg_in,
                           bub_params_t bub_params,
                           grid_t grid_size,
-                          plane_wave_t plane_wave)
+                          transducer_t transducer)
 {
     bubble_t_aos new_bubble;
 
@@ -919,7 +919,7 @@ bubble_t_aos bubble_input(double2 pos,
 
     new_bubble.PL_p = new_bubble.PL_n = new_bubble.PL_m = 0.0;
 
-    if (plane_wave.cylindrical)
+    if (transducer.cylindrical)
     {
         new_bubble.n_B = fg_in * (pos.x * grid_size.dx * grid_size.dy)
                          / (4.0 / 3.0 * Pi * pow(new_bubble.R_t,3));
@@ -1231,7 +1231,7 @@ void setCUDAflags()
 int initialize_CUDA_variables(grid_t      *grid_size,
                               PML_t      *PML,
                               sim_params_t	*sim_params,
-                              plane_wave_t	*plane_wave,
+                              transducer_t	*transducer,
                               array_index_t	*array_index,
                               mix_params_t	*mix_params,
                               bub_params_t	*bub_params)
@@ -1481,7 +1481,7 @@ int initialize_CUDA_variables(grid_t      *grid_size,
     cudaMemcpyToSymbol(array_c,      array_index, sizeof(array_index_t));
     cudaMemcpyToSymbol(grid_c,       grid_size,   sizeof(grid_t));
     cudaMemcpyToSymbol(sim_params_c, sim_params,  sizeof(sim_params_t));
-    cudaMemcpyToSymbol(plane_wave_c, plane_wave,  sizeof(plane_wave_t));
+    cudaMemcpyToSymbol(transducer_c, transducer,  sizeof(transducer_t));
     cudaMemcpyToSymbol(mix_params_c, mix_params,  sizeof(mix_params_t));
     cudaMemcpyToSymbol(PML_c,        PML,         sizeof(PML_t));
 

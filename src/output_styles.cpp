@@ -45,7 +45,7 @@ extern "C" void *save_sph(void *threadArg)
     array_index_t *array_index = plan.array_index;
     grid_t *grid_size = plan.grid_size;
     sim_params_t *sim_params = plan.sim_params;
-    plane_wave_t *plane_wave = plan.plane_wave;
+    transducer_t *transducer = plan.transducer;
     debug_t *debug = plan.debug;
 
     int index = 0;
@@ -147,7 +147,7 @@ extern "C" void *save_ascii(void *threadArg)
     array_index_t *array_index = plan.array_index;
     grid_t *grid_size = plan.grid_size;
     sim_params_t *sim_params = plan.sim_params;
-    plane_wave_t *plane_wave = plan.plane_wave;
+    transducer_t *transducer = plan.transducer;
     debug_t *debug = plan.debug;
 
     int index = 0;
@@ -193,7 +193,7 @@ extern "C" void *save_ascii(void *threadArg)
 
         for (int j = 0; j <= grid_size->Y; j++)
         {
-            for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
+            for (int i = (transducer->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
                 index = i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m;
                 out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.f_g[index] << endl;
@@ -216,7 +216,7 @@ extern "C" void *save_ascii(void *threadArg)
 
         for (int j = 0; j <= grid_size->Y; j++)
         {
-            for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
+            for (int i = (transducer->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
                 index = i1m * (j - array_index->jsta1m) + abs(i) - array_index->ista1m;
                 out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.p0[index] << endl;
@@ -239,7 +239,7 @@ extern "C" void *save_ascii(void *threadArg)
 
         for (int j = 0; j <= grid_size->Y; j++)
         {
-            for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
+            for (int i = (transducer->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
                 index = i2m * (j - array_index->jsta2m) + abs(i) - array_index->ista2m;
                 out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.T[index] << endl;
@@ -262,7 +262,7 @@ extern "C" void *save_ascii(void *threadArg)
 
         for (int j = 0; j <= grid_size->Y; j++)
         {
-            for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
+            for (int i = (transducer->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
                 out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.vx[i2n * (j - array_index->jsta2m) + abs(i) - array_index->ista2n] << endl;
             }
@@ -279,7 +279,7 @@ extern "C" void *save_ascii(void *threadArg)
 
         for (int j = 0; j <= grid_size->Y; j++)
         {
-            for (int i = (plane_wave->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
+            for (int i = (transducer->cylindrical ? -grid_size->X : 0); i <= grid_size->X; i++)
             {
                 out_file << (double)i*grid_size->dx << "\t" << (double)j*grid_size->dy << "\t" << mixture_h.vy[i2m * (j - array_index->jsta2n) + abs(i) - array_index->ista2m] << endl;
             }
@@ -300,7 +300,7 @@ extern "C" void *save_ascii(void *threadArg)
         {
             out_file << bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.R_t[i] <<  endl;
         }
-//			if (plane_wave->cylindrical){
+//			if (transducer->cylindrical){
 //				for (int i = 0; i < numBubbles; i++){
 //					out_file << -bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.R_t[i] <<  endl;
 //				}
@@ -318,7 +318,7 @@ extern "C" void *save_ascii(void *threadArg)
         {
             out_file << bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.PG_p[i] << endl;
         }
-//			if (plane_wave->cylindrical){
+//			if (transducer->cylindrical){
 //				for (int i = 0; i < numBubbles; i++){
 //					out_file << -bubbles_h.pos[i].x << "\t" << bubbles_h.pos[i].y << "\t" << bubbles_h.PG_p[i] << endl;
 //				}

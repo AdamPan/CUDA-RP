@@ -23,7 +23,7 @@ save_interval	=	100
 order		=	2
 smooth_delta_band	=	2
 
-[plane_wave]
+[transducer]
 amp	=	1.5e-2
 freq	=	1.0e6
 focal_dist	=	40.0e-3

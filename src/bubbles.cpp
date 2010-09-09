@@ -39,7 +39,7 @@ int runSimulation(int argc, char *argv[])
     PML_t        *PML;
     sim_params_t *sim_params;
     bub_params_t *bub_params;
-    plane_wave_t *plane_wave;
+    transducer_t *transducer;
     debug_t      *debug;
 
     // Flags for save function
@@ -52,7 +52,7 @@ int runSimulation(int argc, char *argv[])
     PML        = (PML_t*) malloc(sizeof(PML_t));
     sim_params = (sim_params_t*) malloc(sizeof(sim_params_t));
     bub_params = (bub_params_t*) calloc(1,sizeof(bub_params_t));
-    plane_wave = (plane_wave_t*) calloc(1,sizeof(plane_wave_t));
+    transducer = (transducer_t*) calloc(1,sizeof(transducer_t));
     debug      = (debug_t*) malloc(sizeof(debug_t));
 
     // boost::program_options library is used to parse:
@@ -91,21 +91,21 @@ int runSimulation(int argc, char *argv[])
     ("simulation.save_interval", po::value<int>(&sim_params->DATA_SAVE))
     ("simulation.order", po::value<int>(&sim_params->order))
     ("simulation.smooth_delta_band", po::value<int>(&sim_params->deltaBand))
-    ("plane_wave.amp", po::value<double>(&plane_wave->amp))
-    ("plane_wave.freq", po::value<double>(&plane_wave->freq))
-    ("plane_wave.focal_dist", po::value<double>(&plane_wave->f_dist))
-    ("plane_wave.pid", po::value<bool>(&plane_wave->pid)->default_value(false))
-    ("plane_wave.pid_start_step", po::value<int>(&plane_wave->pid_start_step)->default_value(1))
-    ("plane_wave.init_control", po::value<double>(&plane_wave->init_control)->default_value(0.0))
-    ("plane_wave.pid_iterate", po::value<int>(&num_iters)->default_value(1))
-    ("plane_wave.box_size", po::value<double>(&plane_wave->box_size))
-    ("plane_wave.cylindrical", po::value<bool>(&plane_wave->cylindrical))
-    ("plane_wave.on_wave", po::value<int>(&plane_wave->on_wave))
-    ("plane_wave.off_wave", po::value<int>(&plane_wave->off_wave))
-    ("plane_wave.plane_wave_v", po::value<bool>(&plane_wave->Plane_V))
-    ("plane_wave.plane_wave_p", po::value<bool>(&plane_wave->Plane_P))
-    ("plane_wave.focused_wave_v", po::value<bool>(&plane_wave->Focused_V))
-    ("plane_wave.focused_wave_p", po::value<bool>(&plane_wave->Focused_P))
+    ("transducer.amp", po::value<double>(&transducer->amp))
+    ("transducer.freq", po::value<double>(&transducer->freq))
+    ("transducer.focal_dist", po::value<double>(&transducer->f_dist))
+    ("transducer.pid", po::value<bool>(&transducer->pid)->default_value(false))
+    ("transducer.pid_start_step", po::value<int>(&transducer->pid_start_step)->default_value(1))
+    ("transducer.init_control", po::value<double>(&transducer->init_control)->default_value(0.0))
+    ("transducer.pid_iterate", po::value<int>(&num_iters)->default_value(1))
+    ("transducer.box_size", po::value<double>(&transducer->box_size))
+    ("transducer.cylindrical", po::value<bool>(&transducer->cylindrical))
+    ("transducer.on_wave", po::value<int>(&transducer->on_wave))
+    ("transducer.off_wave", po::value<int>(&transducer->off_wave))
+    ("transducer.transducer_v", po::value<bool>(&transducer->Plane_V))
+    ("transducer.transducer_p", po::value<bool>(&transducer->Plane_P))
+    ("transducer.focused_wave_v", po::value<bool>(&transducer->Focused_V))
+    ("transducer.focused_wave_p", po::value<bool>(&transducer->Focused_P))
     ("bubbles.enable", po::value<bool>(&bub_params->enabled)->default_value(false)->implicit_value(true))
     ("bubbles.fg0", po::value<double>(&bub_params->fg0))
     ("bubbles.R0", po::value<double>(&bub_params->R0))
@@ -218,7 +218,7 @@ int runSimulation(int argc, char *argv[])
                                       make_double2(0.0, 0.0)
                                      );
 
-    for (int i = 0; i < num_iters; i++)
+    for (int j = 0; j < num_iters; j++)
     {
         // Enter main simulation loop
         if (num_iters > 1 && vm.count("directory"))
@@ -227,7 +227,7 @@ int runSimulation(int argc, char *argv[])
             if (target_dir.find_last_of("/") != target_dir.length() - 1)
             {
                 target_dir += "_";
-                for (int j = 0; j < i + 1; j++)
+                for (int i = 0; i < j + 1; i++)
                 {
                     target_dir += "I";
                 }
@@ -237,7 +237,7 @@ int runSimulation(int argc, char *argv[])
             {
                 target_dir.resize(target_dir.size()-1);
                 target_dir += "_";
-                for (int j = 0; j < i + 1; j++)
+                for (int i = 0; i < j + 1; i++)
                 {
                     target_dir += "I";
                 }
@@ -250,16 +250,10 @@ int runSimulation(int argc, char *argv[])
                                      PML,
                                      sim_params,
                                      bub_params,
-                                     plane_wave,
+                                     transducer,
                                      debug,
                                      save_function,
                                      result_tuple);
-
-        cout << (bool)thrust::get<0>(result_tuple) << "\t";
-        cout << thrust::get<1>(result_tuple).y << "\t";
-        cout << thrust::get<2>(result_tuple).y << "\t";
-        cout << thrust::get<3>(result_tuple).y << endl;
-
 
         fp_file.open((target_dir + "focalpoint_actual_T.txt").c_str());
         for (int i = 0; i < focalpoint.size(); i++)
@@ -271,7 +265,7 @@ int runSimulation(int argc, char *argv[])
         fp_file.open((target_dir + "focalpoint_controller_T.txt").c_str());
         for (int i = 0; i < control.size(); i++)
         {
-            fp_file << i + plane_wave->pid_start_step << "\t" << control[i].y << endl;
+            fp_file << i + transducer->pid_start_step << "\t" << control[i].y << endl;
         }
         fp_file.close();
 
@@ -300,14 +294,18 @@ int runSimulation(int argc, char *argv[])
             file << fg_min << endl << fg_max << endl;
             file.close();
         }
+        if (num_iters == 1)
+            cout << "The program took ";
+        else
+            cout << j << " pass took ";
+
+        cout << time(NULL) - start_time << " seconds to run" << endl;
+        ofstream runtime;
+        runtime.open((target_dir + "runtime.txt").c_str());
+        runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
+        runtime.close();
     }
     // tell us the time
-
-    cout << "The program took " << time(NULL) - start_time << " seconds to run" << endl;
-    ofstream runtime;
-    runtime.open((target_dir + "runtime.txt").c_str());
-    runtime << "Finished in " << time(NULL) - start_time << " seconds" << endl;
-    runtime.close();
     return 0;
 }
 
